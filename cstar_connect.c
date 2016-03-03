@@ -1,4 +1,3 @@
-
 #include "postgres.h"
 
 #include "cstar_fdw.h"
