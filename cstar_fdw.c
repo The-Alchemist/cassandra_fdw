@@ -938,6 +938,10 @@ cassEndForeignScan(ForeignScanState *node)
 }
 
 #ifdef CSTAR_FDW_WRITE_API
+/*
+ * cassAddForeignUpdateTargets
+ * 		Add the PRIMARY KEY column as resjunk entry.
+ */
 static void
 cassAddForeignUpdateTargets(Query *parsetree,
 							RangeTblEntry *target_rte,
@@ -972,7 +976,7 @@ cassAddForeignUpdateTargets(Query *parsetree,
 
 	/*
 	 * Loop through all columns of the FOREIGN TABLE to determine the PK
-	 * attributes to be added as hidden target columns for UPDATE and DELETE
+	 * attribute to be added as hidden target column for UPDATE and DELETE
 	 * statements.
 	 */
 	for (i = 0; i < tupdesc->natts; ++i)
