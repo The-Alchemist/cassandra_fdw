@@ -85,9 +85,9 @@ static struct CassFdwOption valid_options[] =
  * because there cannot be more than one FOREIGN TABLE modified at the same
  * time.
  */
-#if 0 /* For warning suppressing until this is used by the write support. */
+#    if 0 /* For warning suppression until this is used by the write support. */
 static regproc *output_funcs;
-#endif
+#    endif /* 0 */
 #endif  /* CSTAR_FDW_WRITE_API */
 
 /*
