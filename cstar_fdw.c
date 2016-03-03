@@ -983,7 +983,11 @@ static void cassExplainForeignModify(ModifyTableState *mtstate,
 
 static int	cassIsForeignRelUpdatable(Relation rel)
 {
-	return 1;
+	/*
+	 * Cassandra does not provide "read_only" tables and we do not need to
+	 * support them presently.
+	 */
+	return (1 << CMD_UPDATE) | (1 << CMD_INSERT) | (1 << CMD_DELETE);
 }
 #endif /* CSTAR_FDW_WRITE_API */
 
