@@ -85,8 +85,9 @@ static struct CassFdwOption valid_options[] =
  * because there cannot be more than one FOREIGN TABLE modified at the same
  * time.
  */
-
+#if 0 /* For warning suppressing until this is used by the write support. */
 static regproc *output_funcs;
+#endif
 #endif  /* CSTAR_FDW_WRITE_API */
 
 /*
@@ -181,9 +182,6 @@ static void cassBeginForeignScan(ForeignScanState *node, int eflags);
 static TupleTableSlot *cassIterateForeignScan(ForeignScanState *node);
 static void cassReScanForeignScan(ForeignScanState *node);
 static void cassEndForeignScan(ForeignScanState *node);
-static bool cassAnalyzeForeignTable(Relation relation,
-						AcquireSampleRowsFunc *func,
-						BlockNumber *totalpages);
 
 #ifdef CSTAR_FDW_WRITE_API
 static void
@@ -1098,6 +1096,7 @@ fetch_more_data(ForeignScanState *node)
 		}
 
 		cass_future_free(result_future);
+		MemoryContextSwitchTo(oldcontext);
 	}
 }
 
@@ -1204,7 +1203,7 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 	{
 		cass_int64_t i;
 		cass_value_get_int64(value, &i);
-		appendStringInfo(buf, "%lld ", i);
+		appendStringInfo(buf, "%lld ", (long long int)i);
 		break;
 	}
 	case CASS_VALUE_TYPE_BOOLEAN:
