@@ -523,7 +523,8 @@ cassGetOptions(Oid foreigntableid, char **host, int *port,
 
 /*
  * Fetch the primary_keys option for a FOREIGN TABLE without returning the
- * remaining options; the PK is the only one needed for specific callbacks.
+ * remaining options; the PK is the only one needed for certain callbacks such
+ * as cassAddForeignUpdateTargets().
  */
 static void
 cassGetPKOption(Oid foreigntableid,
