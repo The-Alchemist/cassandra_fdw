@@ -39,6 +39,9 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 
+#if PG_VERSION_NUM >= 90300
+#    define CSTAR_FDW_WRITE_API
+#endif  /* PG_VERSION_NUM >= 90300 */
 
 PG_MODULE_MAGIC;
 
@@ -48,6 +51,8 @@ PG_MODULE_MAGIC;
 /* Default CPU cost to process 1 row (above and beyond cpu_tuple_cost). */
 #define DEFAULT_FDW_TUPLE_COST		0.01
 
+/* User-visible name for logging and reporting purposes */
+#define CSTAR_FDW_NAME				"cstar_fdw"
 
 struct CassFdwOption
 {
@@ -66,11 +71,23 @@ static struct CassFdwOption valid_options[] =
 	{ "password",		UserMappingRelationId },
 	{ "query",			ForeignTableRelationId },
 	{ "schema_name",	ForeignTableRelationId },
-	{ "table_name",		ForeignTableRelationId },
-
+	{ "table_name",	ForeignTableRelationId },
+	/* Pre-req for UPDATE and DELETE support */
+	{ "primary_keys",	ForeignTableRelationId },
 	/* Sentinel */
 	{ NULL,			InvalidOid }
 };
+
+#ifdef CSTAR_FDW_WRITE_API
+/*
+ * Array to hold the type output functions used during table modification.  As
+ * in the Oracle FDW, it is alright to hold this cache in a static variable
+ * because there cannot be more than one FOREIGN TABLE modified at the same
+ * time.
+ */
+
+static regproc *output_funcs;
+#endif  /* CSTAR_FDW_WRITE_API */
 
 /*
  * FDW-specific information for RelOptInfo.fdw_private.
@@ -164,6 +181,36 @@ static bool cassAnalyzeForeignTable(Relation relation,
 						AcquireSampleRowsFunc *func,
 						BlockNumber *totalpages);
 
+#ifdef CSTAR_FDW_WRITE_API
+static void
+cassAddForeignUpdateTargets(Query *parsetree,
+							RangeTblEntry *target_rte,
+							Relation target_relation);
+static List *
+cassPlanForeignModify(PlannerInfo *root, ModifyTable *plan,
+					  Index resultRelation, int subplan_index);
+static void cassBeginForeignModify(ModifyTableState *mtstate,
+					   ResultRelInfo *rinfo, List *fdw_private,
+					   int subplan_index, int eflags);
+static TupleTableSlot *cassExecForeignInsert(EState *estate,
+					  ResultRelInfo *rinfo,
+					  TupleTableSlot *slot,
+					  TupleTableSlot *planSlot);
+static TupleTableSlot *cassExecForeignUpdate(EState *estate,
+					  ResultRelInfo *rinfo,
+					  TupleTableSlot *slot,
+					  TupleTableSlot *planSlot);
+static TupleTableSlot *cassExecForeignDelete(EState *estate,
+					  ResultRelInfo *rinfo,
+					  TupleTableSlot *slot,
+					  TupleTableSlot *planSlot);
+static void cassEndForeignModify(EState *estate, ResultRelInfo *rinfo);
+static void cassExplainForeignModify(ModifyTableState *mtstate,
+						 ResultRelInfo *rinfo, List *fdw_private,
+						 int subplan_index,
+						 struct ExplainState *es);
+static int	cassIsForeignRelUpdatable(Relation rel);
+#endif /* CSTAR_FDW_WRITE_API */
 /*
  * Helper functions
  */
@@ -173,10 +220,11 @@ static void estimate_path_cost_size(PlannerInfo *root,
 						double *p_rows, int *p_width,
 						Cost *p_startup_cost, Cost *p_total_cost);
 static bool cassIsValidOption(const char *option, Oid context);
-static void cassGetOptions(Oid foreigntableid,
-				char **host, int *port,
-				char **username, char **password,
-				char **query, char **tablename);
+static void
+cassGetOptions(Oid foreigntableid,
+			   char **host, int *port,
+			   char **username, char **password,
+			   char **query, char **tablename, char **primarykeys);
 
 static void create_cursor(ForeignScanState *node);
 static void close_cursor(CassFdwScanState *fsstate);
@@ -221,6 +269,17 @@ cstar_fdw_handler(PG_FUNCTION_ARGS)
 	fdwroutine->EndForeignScan = cassEndForeignScan;
 	fdwroutine->AnalyzeForeignTable = NULL;
 
+#ifdef CSTAR_FDW_WRITE_API
+	fdwroutine->AddForeignUpdateTargets = cassAddForeignUpdateTargets;
+	fdwroutine->PlanForeignModify = cassPlanForeignModify;
+	fdwroutine->BeginForeignModify = cassBeginForeignModify;
+	fdwroutine->ExecForeignInsert = cassExecForeignInsert;
+	fdwroutine->ExecForeignUpdate = cassExecForeignUpdate;
+	fdwroutine->ExecForeignDelete = cassExecForeignDelete;
+	fdwroutine->EndForeignModify = cassEndForeignModify;
+	fdwroutine->ExplainForeignModify = cassExplainForeignModify;
+	fdwroutine->IsForeignRelUpdatable = cassIsForeignRelUpdatable;
+#endif /* CSTAR_FDW_WRITE_API */
 	PG_RETURN_POINTER(fdwroutine);
 }
 
@@ -242,6 +301,7 @@ cstar_fdw_validator(PG_FUNCTION_ARGS)
 	char		*svr_query = NULL;
 	char		*svr_schema = NULL;
 	char		*svr_table = NULL;
+	char		*primary_keys = NULL;
 	ListCell	*cell;
 
 	/*
@@ -347,6 +407,14 @@ cstar_fdw_validator(PG_FUNCTION_ARGS)
 
 			svr_table = defGetString(def);
 		}
+		if (strcmp(def->defname, "primary_keys") == 0)
+		{
+			if (primary_keys)
+				ereport(ERROR,
+				        (errcode(ERRCODE_SYNTAX_ERROR),
+				         errmsg("conflicting or redundant options")));
+			primary_keys = defGetString(def);
+		}
 	}
 
 	if (catalog == ForeignServerRelationId && svr_host == NULL)
@@ -387,7 +455,8 @@ cassIsValidOption(const char *option, Oid context)
  */
 static void
 cassGetOptions(Oid foreigntableid, char **host, int *port,
-				char **username, char **password, char **query, char **tablename)
+				char **username, char **password, char **query,
+				char **tablename, char **primarykeys)
 {
 	ForeignTable  *table;
 	ForeignServer *server;
@@ -435,6 +504,10 @@ cassGetOptions(Oid foreigntableid, char **host, int *port,
 		else if (strcmp(def->defname, "port") == 0)
 		{
 			*port = atoi(defGetString(def));
+		}
+		else if (strcmp(def->defname, "primary_keys") == 0)
+		{
+			*primarykeys = defGetString(def);
 		}
 
 	}
@@ -642,14 +715,15 @@ cassExplainForeignScan(ForeignScanState *node, ExplainState *es)
 	char	*svr_password = NULL;
 	char	*svr_query = NULL;
 	char	*svr_table = NULL;
+	char	*primary_keys = NULL;
 
 	if (es->verbose)
 	{
 		/* Fetch options  */
 		cassGetOptions(RelationGetRelid(node->ss.ss_currentRelation),
-						&svr_host, &svr_port,
-						&svr_username, &svr_password,
-						&svr_query, &svr_table);
+					   &svr_host, &svr_port,
+					   &svr_username, &svr_password,
+					   &svr_query, &svr_table, &primary_keys);
 
 		fdw_private = ((ForeignScan *) node->ss.ps.plan)->fdw_private;
 		sql = strVal(list_nth(fdw_private, CassFdwScanPrivateSelectSql));
@@ -823,6 +897,95 @@ cassEndForeignScan(ForeignScanState *node)
 	/* MemoryContexts will be deleted automatically. */
 }
 
+#ifdef CSTAR_FDW_WRITE_API
+static void
+cassAddForeignUpdateTargets(Query *parsetree,
+							RangeTblEntry *target_rte,
+							Relation target_relation)
+{
+	ereport(ERROR,
+	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	         errmsg("Feature not currently implemented.")));
+}
+
+static List *
+cassPlanForeignModify(PlannerInfo *root, ModifyTable *plan,
+                      Index resultRelation, int subplan_index)
+{
+	ereport(ERROR,
+	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	         errmsg("Feature not currently implemented.")));
+
+	return NULL;
+}
+
+static void cassBeginForeignModify(ModifyTableState *mtstate,
+                                   ResultRelInfo *rinfo, List *fdw_private,
+                                   int subplan_index, int eflags)
+{
+	ereport(ERROR,
+	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	         errmsg("Feature not currently implemented.")));
+}
+
+static TupleTableSlot *cassExecForeignInsert(EState *estate,
+                                             ResultRelInfo *rinfo,
+                                             TupleTableSlot *slot,
+                                             TupleTableSlot *planSlot)
+{
+	ereport(ERROR,
+	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	         errmsg("Feature not currently implemented.")));
+
+	return NULL;
+}
+
+static TupleTableSlot *cassExecForeignUpdate(EState *estate,
+                                             ResultRelInfo *rinfo,
+                                             TupleTableSlot *slot,
+                                             TupleTableSlot *planSlot)
+{
+	ereport(ERROR,
+	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	         errmsg("Feature not currently implemented.")));
+
+	return NULL;
+}
+
+static TupleTableSlot *cassExecForeignDelete(EState *estate,
+                                             ResultRelInfo *rinfo,
+                                             TupleTableSlot *slot,
+                                             TupleTableSlot *planSlot)
+{
+	ereport(ERROR,
+	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	         errmsg("Feature not currently implemented.")));
+
+	return NULL;
+}
+
+static void cassEndForeignModify(EState *estate, ResultRelInfo *rinfo)
+{
+	ereport(ERROR,
+	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	         errmsg("Feature not currently implemented.")));
+}
+
+static void cassExplainForeignModify(ModifyTableState *mtstate,
+                                     ResultRelInfo *rinfo, List *fdw_private,
+                                     int subplan_index,
+                                     struct ExplainState *es)
+{
+	ereport(ERROR,
+	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	         errmsg("Feature not currently implemented.")));
+}
+
+static int	cassIsForeignRelUpdatable(Relation rel)
+{
+	return 1;
+}
+#endif /* CSTAR_FDW_WRITE_API */
 
 /*
  * Create cursor for node's query with current parameter values.
