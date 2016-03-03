@@ -1,4 +1,3 @@
-
 #include "postgres.h"
 
 #include <cassandra.h>
@@ -38,6 +37,7 @@
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#include "utils/lsyscache.h"
 
 #if PG_VERSION_NUM >= 90300
 #    define CSTAR_FDW_WRITE_API
@@ -53,6 +53,10 @@ PG_MODULE_MAGIC;
 
 /* User-visible name for logging and reporting purposes */
 #define CSTAR_FDW_NAME				"cstar_fdw"
+
+/* The PRIMARY KEY OPTION name */
+/* TODO: Add support for multiple comma-separated PK columns */
+#define OPT_PK						"primary_key"
 
 struct CassFdwOption
 {
@@ -73,7 +77,7 @@ static struct CassFdwOption valid_options[] =
 	{ "schema_name",	ForeignTableRelationId },
 	{ "table_name",	ForeignTableRelationId },
 	/* Pre-req for UPDATE and DELETE support */
-	{ "primary_keys",	ForeignTableRelationId },
+	{ OPT_PK,	ForeignTableRelationId },
 	/* Sentinel */
 	{ NULL,			InvalidOid }
 };
@@ -227,7 +231,9 @@ cassGetOptions(Oid foreigntableid,
 			   char **host, int *port,
 			   char **username, char **password,
 			   char **query, char **tablename, char **primarykeys);
-
+static void
+cassGetPKOption(Oid foreigntableid,
+				const char **primarykeys);
 static void create_cursor(ForeignScanState *node);
 static void close_cursor(CassFdwScanState *fsstate);
 static void fetch_more_data(ForeignScanState *node);
@@ -409,7 +415,7 @@ cstar_fdw_validator(PG_FUNCTION_ARGS)
 
 			svr_table = defGetString(def);
 		}
-		if (strcmp(def->defname, "primary_keys") == 0)
+		if (strcmp(def->defname, OPT_PK) == 0)
 		{
 			if (primary_keys)
 				ereport(ERROR,
@@ -507,11 +513,39 @@ cassGetOptions(Oid foreigntableid, char **host, int *port,
 		{
 			*port = atoi(defGetString(def));
 		}
-		else if (strcmp(def->defname, "primary_keys") == 0)
+		else if (strcmp(def->defname, OPT_PK) == 0)
 		{
 			*primarykeys = defGetString(def);
 		}
 
+	}
+}
+
+/*
+ * Fetch the primary_keys option for a FOREIGN TABLE without returning the
+ * remaining options; the PK is the only one needed for specific callbacks.
+ */
+static void
+cassGetPKOption(Oid foreigntableid,
+                const char **primarykeys)
+{
+	ForeignTable *table;
+	List         *options;
+	ListCell     *lc;
+
+	table = GetForeignTable(foreigntableid);
+	options = NIL;
+	options = list_concat(options, table->options);
+
+	/* Loop through the options to get the primary_keys option. */
+	foreach(lc, options)
+	{
+		DefElem *def = (DefElem *) lfirst(lc);
+
+		if (strcmp(def->defname, OPT_PK) == 0)
+		{
+			*primarykeys = defGetString(def);
+		}
 	}
 }
 
@@ -909,18 +943,93 @@ cassAddForeignUpdateTargets(Query *parsetree,
 							RangeTblEntry *target_rte,
 							Relation target_relation)
 {
-	ereport(ERROR,
-	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg("Feature not currently implemented.")));
+	Oid         relid        = RelationGetRelid(target_relation);
+	TupleDesc   tupdesc      = target_relation->rd_att;
+	const char *primary_keys = NULL;
+	bool		has_PK       = false;
+	int         i;
+	
+	elog(DEBUG1, CSTAR_FDW_NAME
+	     ": add target column(s) for write on Relation ID %d", relid);
+
+	cassGetPKOption(relid, &primary_keys);
+  
+	if (primary_keys == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+				 errmsg("No PRIMARY KEY specified for the FOREIGN TABLE "
+						"'%s.%s'.",
+						pstrdup(get_namespace_name(RelationGetNamespace(
+														  target_relation))),
+						pstrdup(RelationGetRelationName(target_relation))),
+				 errdetail("For UPDATE or DELETE, a PRIMARY KEY must be "
+						   "defined for the FOREIGN TABLE."),
+				 errhint("Set the FOREIGN TABLE OPTION '%s' to a "
+						 "PRIMARY KEY column.",
+						 OPT_PK)));
+	}
+
+	/*
+	 * Loop through all columns of the FOREIGN TABLE to determine the PK
+	 * attributes to be added as hidden target columns for UPDATE and DELETE
+	 * statements.
+	 */
+	for (i = 0; i < tupdesc->natts; ++i)
+	{
+		Form_pg_attribute att = tupdesc->attrs[i];
+		AttrNumber attrno = att->attnum;
+
+		if (strncmp(NameStr(att->attname), primary_keys, strlen(primary_keys))
+			== 0)
+		{
+			Var *var;
+			TargetEntry *tle;
+
+			/* Make a Var representing the desired value */
+			var = makeVar(parsetree->resultRelation,
+			              attrno,
+			              att->atttypid,
+			              att->atttypmod,
+			              att->attcollation,
+			              0);
+
+			/* Wrap it in a resjunk TLE with the right name ... */
+			tle = makeTargetEntry((Expr *)var,
+			                      list_length(parsetree->targetList) + 1,
+			                      pstrdup(NameStr(att->attname)),
+			                      true);
+
+			/* ... and add it to the query's targetlist */
+			parsetree->targetList = lappend(parsetree->targetList, tle);
+
+			has_PK = true;
+		}
+	}
+
+	if (!has_PK)
+	{
+		ereport(ERROR,
+		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+		         errmsg("The specified PRIMARY KEY '%s' for the FOREIGN TABLE "
+		                "'%s.%s' does not match any COLUMN.",
+		                primary_keys,
+		                pstrdup(get_namespace_name(RelationGetNamespace(
+			                                           target_relation))),
+		                pstrdup(RelationGetRelationName(target_relation))),
+		         errdetail("For UPDATE or DELETE, a valid PRIMARY KEY must be "
+		                   "defined for the FOREIGN TABLE."),
+		         errhint("Set the FOREIGN TABLE OPTION '%s' to a "
+		                 "valid PRIMARY KEY column.",
+		                 OPT_PK)));
+	}
 }
 
 static List *
 cassPlanForeignModify(PlannerInfo *root, ModifyTable *plan,
                       Index resultRelation, int subplan_index)
 {
-	ereport(ERROR,
-	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg("Feature not currently implemented.")));
+	elog(DEBUG1, CSTAR_FDW_NAME ": plan foreign modify");
 
 	return NULL;
 }
@@ -929,9 +1038,7 @@ static void cassBeginForeignModify(ModifyTableState *mtstate,
                                    ResultRelInfo *rinfo, List *fdw_private,
                                    int subplan_index, int eflags)
 {
-	ereport(ERROR,
-	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg("Feature not currently implemented.")));
+	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign modify");
 }
 
 static TupleTableSlot *cassExecForeignInsert(EState *estate,
@@ -941,7 +1048,7 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 {
 	ereport(ERROR,
 	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg("Feature not currently implemented.")));
+	         errmsg(__func__)));
 
 	return NULL;
 }
@@ -953,7 +1060,7 @@ static TupleTableSlot *cassExecForeignUpdate(EState *estate,
 {
 	ereport(ERROR,
 	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg("Feature not currently implemented.")));
+	         errmsg(__func__)));
 
 	return NULL;
 }
@@ -965,7 +1072,7 @@ static TupleTableSlot *cassExecForeignDelete(EState *estate,
 {
 	ereport(ERROR,
 	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg("Feature not currently implemented.")));
+	         errmsg(__func__)));
 
 	return NULL;
 }
@@ -974,7 +1081,7 @@ static void cassEndForeignModify(EState *estate, ResultRelInfo *rinfo)
 {
 	ereport(ERROR,
 	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg("Feature not currently implemented.")));
+	         errmsg(__func__)));
 }
 
 static void cassExplainForeignModify(ModifyTableState *mtstate,
@@ -982,9 +1089,7 @@ static void cassExplainForeignModify(ModifyTableState *mtstate,
                                      int subplan_index,
                                      struct ExplainState *es)
 {
-	ereport(ERROR,
-	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg("Feature not currently implemented.")));
+	elog(DEBUG1, CSTAR_FDW_NAME ": explain foreign modify");
 }
 
 static int	cassIsForeignRelUpdatable(Relation rel)
