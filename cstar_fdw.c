@@ -1016,9 +1016,8 @@ cassAddForeignUpdateTargets(Query *parsetree,
 	{
 		ereport(ERROR,
 		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
-		         errmsg("The specified PRIMARY KEY '%s' for the FOREIGN TABLE "
-		                "'%s.%s' does not match any COLUMN.",
-		                primary_keys,
+		         errmsg("The specified PRIMARY KEY '%s' does not exist in the "
+		                "FOREIGN TABLE '%s.%s'.", primary_keys,
 		                pstrdup(get_namespace_name(RelationGetNamespace(
 			                                           target_relation))),
 		                pstrdup(RelationGetRelationName(target_relation))),
