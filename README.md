@@ -15,7 +15,7 @@ requirement for this FDW is the Cassandra2 C/C++ driver 2.2.x
 ## Build
 
 First, download the source code under the contrib subdirectory of the
-PostgreSQL source tree.  
+PostgreSQL source tree.
 
 ### Build and Install
 
@@ -30,8 +30,8 @@ USE_PGXS=1 make install
 The following parameters can be set on a Cassandra foreign server
 object:
 
-  * **`host`**: the address or hostname of the Cassandra server, Examples: "127.0.0.1" "127.0.0.1,127.0.0.2", "server1.domain.com".
-  * **`port`**: the port number of the Cassandra server. Defaults to 9042.
+  * **`host`**: the address(es) or hostname(s) of the Cassandra server, Examples: "127.0.0.1" "127.0.0.1,127.0.0.2", "server1.domain.com".
+  * **`port`**: the port number of the Cassandra server(s). Defaults to 9042.
 
 The following parameters can be set on a Cassandra foreign table object:
 
