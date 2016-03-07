@@ -288,7 +288,7 @@ static void classifyConditions(PlannerInfo *root,
 				   List *input_conds,
 				   List **remote_conds,
 				   List **local_conds);
-static void bind_cass_statement_param(Oid type, int attnum, Datum value,
+static void bind_cass_statement_param(Oid type, Datum value,
                                       CassStatement *statement, int pindex);
 
 /*
@@ -1354,7 +1354,7 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 	CassFuture*         future  = NULL;
 	CassError           rc      = CASS_OK;
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign insert on relation ID %d",
+	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign INSERT on relation ID %d",
 		RelationGetRelid(resultRelInfo->ri_RelationDesc));
 
 	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
@@ -1378,8 +1378,7 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 				cass_statement_bind_null(fmstate->statement, pindex);
 			else
 				bind_cass_statement_param(fmstate->p_type_oids[pindex],
-				                          attnum, value,
-				                          fmstate->statement, pindex);
+				                          value, fmstate->statement, pindex);
 
 			pindex++;
 		}
@@ -1414,15 +1413,77 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 }
 
 static TupleTableSlot *cassExecForeignUpdate(EState *estate,
-                                             ResultRelInfo *rinfo,
+                                             ResultRelInfo *resultRelInfo,
                                              TupleTableSlot *slot,
                                              TupleTableSlot *planSlot)
 {
-	ereport(ERROR,
-	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg(__func__)));
+	CassFdwModifyState *fmstate = (CassFdwModifyState *) resultRelInfo->ri_FdwState;
+	int                 pindex  = 0;
+	MemoryContext       oldcontext;
+	CassFuture*         future  = NULL;
+	CassError           rc      = CASS_OK;
+	Datum               value;
+	bool                isnull;
 
-	return NULL;
+	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign UPDATE on relation ID %d",
+		RelationGetRelid(resultRelInfo->ri_RelationDesc));
+
+	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
+
+	if (!fmstate->sql_sent)
+		fmstate->statement = cass_statement_new(fmstate->query,
+		                                        fmstate->p_nums);
+
+	if (slot != NULL && fmstate->target_attrs != NIL)
+	{
+		ListCell   *lc;
+
+		foreach(lc, fmstate->target_attrs)
+		{
+			int   attnum = lfirst_int(lc);
+
+			value = slot_getattr(slot, attnum, &isnull);
+			if (isnull)
+				cass_statement_bind_null(fmstate->statement, pindex);
+			else
+				bind_cass_statement_param(fmstate->p_type_oids[pindex],
+				                          value, fmstate->statement, pindex);
+
+			pindex++;
+		}
+	}
+
+	/* Retrieve the key from the resjunk attribute */
+	value = ExecGetJunkAttribute(planSlot, fmstate->keyAttno, &isnull);
+	bind_cass_statement_param(fmstate->p_type_oids[pindex], value,
+	                          fmstate->statement, pindex);
+	pindex++;
+	Assert(pindex == fmstate->p_nums);
+
+	future = cass_session_execute(fmstate->cass_conn, fmstate->statement);
+	fmstate->sql_sent = true;
+	cass_future_wait(future);
+
+	rc = cass_future_error_code(future);
+
+	if (rc != CASS_OK)
+	{
+		const char* message;
+		size_t message_length;
+		cass_future_error_message(future, &message, &message_length);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+		         errmsg("Failed to execute the UPDATE into Cassandra: %.*s",
+		                (int)message_length, message)));
+	}
+
+	cass_future_free(future);
+	MemoryContextSwitchTo(oldcontext);
+
+	MemoryContextReset(fmstate->temp_cxt);
+
+	return slot;
 }
 
 static TupleTableSlot *cassExecForeignDelete(EState *estate,
@@ -1769,7 +1830,7 @@ classifyConditions(PlannerInfo *root,
  * 	Map a parameter to its corresponding bind call for the Cassandra C(++)
  * 	Driver.
  */
-static void bind_cass_statement_param(Oid type, int attnum, Datum value,
+static void bind_cass_statement_param(Oid type, Datum value,
                                       CassStatement *statement, int pindex)
 {
 	switch (type)
