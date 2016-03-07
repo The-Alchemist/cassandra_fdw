@@ -108,7 +108,7 @@ pgcass_GetConnection(ForeignServer *server, UserMapping *user,
 		entry->have_prep_stmt = false;
 		entry->have_error = false;
 		entry->conn = connect_cass_server(server, user);
-		elog(DEBUG3, "new cstar_fdw connection %p for server \"%s\"",
+		elog(DEBUG3, CSTAR_FDW_NAME ": new connection %p for server \"%s\"",
 			 entry->conn, server->servername);
 	}
 

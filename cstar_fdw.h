@@ -9,6 +9,9 @@
 #include "nodes/relation.h"
 #include "utils/rel.h"
 
+/* User-visible name for logging and reporting purposes */
+#define CSTAR_FDW_NAME				"cstar_fdw"
+
 /* in cstar_connect.c */
 extern CassSession *pgcass_GetConnection(ForeignServer *server, UserMapping *user,
 			  bool will_prep_stmt);
