@@ -1455,6 +1455,29 @@ static TupleTableSlot *cassExecForeignUpdate(EState *estate,
 
 	/* Retrieve the key from the resjunk attribute */
 	value = ExecGetJunkAttribute(planSlot, fmstate->keyAttno, &isnull);
+
+	if (isnull)					/* PRIMARY KEY value should not be NULL */
+	{
+		const char *primary_key;
+		Relation    relation = resultRelInfo->ri_RelationDesc;
+		Oid         rid      = RelationGetRelid(relation);
+
+		cassGetPKOption(rid, &primary_key);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+		         errmsg("The specified PRIMARY KEY '%s' contains a NULL value"
+		                "for the FOREIGN TABLE '%s.%s'.", primary_key,
+		                pstrdup(get_namespace_name(RelationGetNamespace(
+			                                           relation))),
+		                pstrdup(RelationGetRelationName(relation))),
+		         errdetail("For UPDATE or DELETE, a valid PRIMARY KEY must be "
+		                   "defined for the FOREIGN TABLE."),
+		         errhint("Set the FOREIGN TABLE OPTION '%s' to a "
+		                 "valid PRIMARY KEY column.",
+		                 OPT_PK)));
+	}
+
 	bind_cass_statement_param(fmstate->p_type_oids[pindex], value,
 	                          fmstate->statement, pindex);
 	pindex++;
@@ -1473,7 +1496,7 @@ static TupleTableSlot *cassExecForeignUpdate(EState *estate,
 		cass_future_error_message(future, &message, &message_length);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
 		         errmsg("Failed to execute the UPDATE into Cassandra: %.*s",
 		                (int)message_length, message)));
 	}
