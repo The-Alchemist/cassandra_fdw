@@ -1,4 +1,3 @@
-
 #ifndef CASSANDRA_FDW_H_
 #define CASSANDRA_FDW_H_
 
@@ -20,4 +19,24 @@ extern void pgcass_ReleaseConnection(CassSession *session);
 extern void pgcass_report_error(int elevel, CassFuture* result_future,
 				bool clear, const char *sql);
 
+/* in deparse.c */
+extern void
+deparseSelectSql(StringInfo buf,
+				 PlannerInfo *root,
+				 RelOptInfo *baserel,
+				 Bitmapset *attrs_used,
+				 List **retrieved_attrs);
+extern void
+deparseInsertSql(StringInfo buf, PlannerInfo *root,
+				 Index rtindex, Relation rel,
+				 List *targetAttrs, bool doNothing);
+extern void
+deparseUpdateSql(StringInfo buf, PlannerInfo *root,
+				 Index rtindex, Relation rel,
+				 List *targetAttrs, const char *primaryKey);
+extern void
+deparseDeleteSql(StringInfo buf, PlannerInfo *root,
+				 Index rtindex, Relation rel,
+				 List **retrieved_attrs,
+				 const char *primaryKey);
 #endif /* CASSANDRA_FDW_H_ */

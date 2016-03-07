@@ -1,6 +1,6 @@
 
 MODULE_big = cstar_fdw
-OBJS = cstar_fdw.o cstar_connect.o
+OBJS = cstar_fdw.o cstar_connect.o deparse.o
 
 SHLIB_LINK = -lcassandra
 
