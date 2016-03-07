@@ -51,9 +51,6 @@ PG_MODULE_MAGIC;
 /* Default CPU cost to process 1 row (above and beyond cpu_tuple_cost). */
 #define DEFAULT_FDW_TUPLE_COST		0.01
 
-/* User-visible name for logging and reporting purposes */
-#define CSTAR_FDW_NAME				"cstar_fdw"
-
 /* The PRIMARY KEY OPTION name */
 /* TODO: Add support for multiple comma-separated PK columns */
 #define OPT_PK						"primary_key"
@@ -83,15 +80,56 @@ static struct CassFdwOption valid_options[] =
 };
 
 #ifdef CSTAR_FDW_WRITE_API
+
 /*
- * Array to hold the type output functions used during table modification.  As
- * in the Oracle FDW, it is alright to hold this cache in a static variable
- * because there cannot be more than one FOREIGN TABLE modified at the same
- * time.
+ * This enum describes what's kept in the fdw_private list for a ModifyTable
+ * node referencing a cstar_fdw foreign table.  We store:
+ *
+ * 1) INSERT/UPDATE/DELETE statement text to be sent to the remote server
+ * 2) Integer list of target attribute numbers for INSERT/UPDATE
+ *	  (NIL for a DELETE)
+ * 3) Boolean flag showing if the remote query has a RETURNING clause
+ * 4) Integer list of attribute numbers retrieved by RETURNING, if any
  */
-#    if 0 /* For warning suppression until this is used by the write support. */
-static regproc *output_funcs;
-#    endif /* 0 */
+enum FdwModifyPrivateIndex
+{
+	/* SQL statement to execute remotely (as a String node) */
+	FdwModifyPrivateUpdateSql,
+	/* Integer list of target attribute numbers for INSERT/UPDATE */
+	FdwModifyPrivateTargetAttnums,
+	/* has-returning flag (as an integer Value node) */
+	FdwModifyPrivateHasReturning,
+	/* Integer list of attribute numbers retrieved by RETURNING */
+	FdwModifyPrivateRetrievedAttrs
+};
+
+/*
+ * Execution state of a foreign INSERT/UPDATE/DELETE operation.
+ */
+typedef struct CassFdwModifyState
+{
+	Relation	rel;			/* relcache entry for the foreign table */
+	AttInMetadata *attinmeta;	/* attribute datatype conversion metadata */
+
+	/* for remote query execution */
+	CassSession   *cass_conn; /* connection for the modify */
+	bool           sql_sent;
+	CassStatement *statement;
+
+	/* extracted fdw_private data */
+	char	   *query;			/* text of INSERT/UPDATE/DELETE command */
+	List	   *target_attrs;	/* list of target attribute numbers */
+	bool		has_returning;	/* is there a RETURNING clause? */
+	List	   *retrieved_attrs;	/* attr numbers retrieved by RETURNING */
+
+	/* info about parameters for prepared statement */
+	AttrNumber	keyAttno;		/* attnum of input resjunk key column */
+	int			p_nums;			/* number of parameters to transmit */
+	Oid   *p_type_oids;		/* Type OIDs for them */
+
+	/* working memory context */
+	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
+} CassFdwModifyState;
 #endif  /* CSTAR_FDW_WRITE_API */
 
 /*
@@ -196,23 +234,23 @@ static List *
 cassPlanForeignModify(PlannerInfo *root, ModifyTable *plan,
 					  Index resultRelation, int subplan_index);
 static void cassBeginForeignModify(ModifyTableState *mtstate,
-					   ResultRelInfo *rinfo, List *fdw_private,
+					   ResultRelInfo *resultRelInfo, List *fdw_private,
 					   int subplan_index, int eflags);
 static TupleTableSlot *cassExecForeignInsert(EState *estate,
-					  ResultRelInfo *rinfo,
+					  ResultRelInfo *resultRelInfo,
 					  TupleTableSlot *slot,
 					  TupleTableSlot *planSlot);
 static TupleTableSlot *cassExecForeignUpdate(EState *estate,
-					  ResultRelInfo *rinfo,
+					  ResultRelInfo *resultRelInfo,
 					  TupleTableSlot *slot,
 					  TupleTableSlot *planSlot);
 static TupleTableSlot *cassExecForeignDelete(EState *estate,
-					  ResultRelInfo *rinfo,
+					  ResultRelInfo *resultRelInfo,
 					  TupleTableSlot *slot,
 					  TupleTableSlot *planSlot);
 static void cassEndForeignModify(EState *estate, ResultRelInfo *rinfo);
 static void cassExplainForeignModify(ModifyTableState *mtstate,
-						 ResultRelInfo *rinfo, List *fdw_private,
+						 ResultRelInfo *resultRelInfo, List *fdw_private,
 						 int subplan_index,
 						 struct ExplainState *es);
 static int	cassIsForeignRelUpdatable(Relation rel);
@@ -230,10 +268,10 @@ static void
 cassGetOptions(Oid foreigntableid,
 			   char **host, int *port,
 			   char **username, char **password,
-			   char **query, char **tablename, char **primarykeys);
+			   char **query, char **tablename, char **primarykey);
 static void
 cassGetPKOption(Oid foreigntableid,
-				const char **primarykeys);
+				const char **primarykey);
 static void create_cursor(ForeignScanState *node);
 static void close_cursor(CassFdwScanState *fsstate);
 static void fetch_more_data(ForeignScanState *node);
@@ -250,12 +288,8 @@ static void classifyConditions(PlannerInfo *root,
 				   List *input_conds,
 				   List **remote_conds,
 				   List **local_conds);
-static void
-deparseSelectSql(StringInfo buf,
-				 PlannerInfo *root,
-				 RelOptInfo *baserel,
-				 Bitmapset *attrs_used,
-				 List **retrieved_attrs);
+static void bind_cass_statement_param(Oid type, int attnum, Datum value,
+                                      CassStatement *statement, int pindex);
 
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
@@ -309,7 +343,7 @@ cstar_fdw_validator(PG_FUNCTION_ARGS)
 	char		*svr_query = NULL;
 	char		*svr_schema = NULL;
 	char		*svr_table = NULL;
-	char		*primary_keys = NULL;
+	char		*primary_key = NULL;
 	ListCell	*cell;
 
 	/*
@@ -417,11 +451,11 @@ cstar_fdw_validator(PG_FUNCTION_ARGS)
 		}
 		if (strcmp(def->defname, OPT_PK) == 0)
 		{
-			if (primary_keys)
+			if (primary_key)
 				ereport(ERROR,
 				        (errcode(ERRCODE_SYNTAX_ERROR),
 				         errmsg("conflicting or redundant options")));
-			primary_keys = defGetString(def);
+			primary_key = defGetString(def);
 		}
 	}
 
@@ -464,7 +498,7 @@ cassIsValidOption(const char *option, Oid context)
 static void
 cassGetOptions(Oid foreigntableid, char **host, int *port,
 				char **username, char **password, char **query,
-				char **tablename, char **primarykeys)
+				char **tablename, char **primarykey)
 {
 	ForeignTable  *table;
 	ForeignServer *server;
@@ -515,20 +549,20 @@ cassGetOptions(Oid foreigntableid, char **host, int *port,
 		}
 		else if (strcmp(def->defname, OPT_PK) == 0)
 		{
-			*primarykeys = defGetString(def);
+			*primarykey = defGetString(def);
 		}
 
 	}
 }
 
 /*
- * Fetch the primary_keys option for a FOREIGN TABLE without returning the
+ * Fetch the primary_key option for a FOREIGN TABLE without returning the
  * remaining options; the PK is the only one needed for certain callbacks such
  * as cassAddForeignUpdateTargets().
  */
 static void
 cassGetPKOption(Oid foreigntableid,
-                const char **primarykeys)
+                const char **primarykey)
 {
 	ForeignTable *table;
 	List         *options;
@@ -538,14 +572,14 @@ cassGetPKOption(Oid foreigntableid,
 	options = NIL;
 	options = list_concat(options, table->options);
 
-	/* Loop through the options to get the primary_keys option. */
+	/* Loop through the options to get the primary_key option. */
 	foreach(lc, options)
 	{
 		DefElem *def = (DefElem *) lfirst(lc);
 
 		if (strcmp(def->defname, OPT_PK) == 0)
 		{
-			*primarykeys = defGetString(def);
+			*primarykey = defGetString(def);
 		}
 	}
 }
@@ -563,6 +597,9 @@ cassGetForeignRelSize(PlannerInfo *root,
 {
 	CassFdwPlanState *fpinfo;
 	ListCell   *lc;
+
+	elog(DEBUG1, CSTAR_FDW_NAME
+	     ": get foreign rel size for relation ID %d", foreigntableid);
 
 	fpinfo = (CassFdwPlanState *) palloc0(sizeof(CassFdwPlanState));
 	baserel->fdw_private = (void *) fpinfo;
@@ -642,6 +679,9 @@ cassGetForeignPaths(PlannerInfo *root,
 	CassFdwPlanState *fpinfo = (CassFdwPlanState *) baserel->fdw_private;
 	ForeignPath *path;
 
+	elog(DEBUG1, CSTAR_FDW_NAME
+	     ": get foreign paths for relation ID %d", foreigntableid);
+
 	/*
 	 * Create simplest ForeignScan path node and add it to baserel.  This path
 	 * corresponds to SeqScan path of regular tables (though depending on what
@@ -694,6 +734,9 @@ cassGetForeignPlan(PlannerInfo *root,
 	List	   *local_exprs = NIL;
 	StringInfoData sql;
 	List	   *retrieved_attrs;
+
+	elog(DEBUG1, CSTAR_FDW_NAME
+	     ": get foreign plan for relation ID %d", foreigntableid);
 
 	local_exprs = extract_actual_clauses(scan_clauses, false);
 
@@ -756,7 +799,10 @@ cassExplainForeignScan(ForeignScanState *node, ExplainState *es)
 	char	*svr_password = NULL;
 	char	*svr_query = NULL;
 	char	*svr_table = NULL;
-	char	*primary_keys = NULL;
+	char	*primary_key = NULL;
+
+	elog(DEBUG1, CSTAR_FDW_NAME ": explain foreign scan for relation ID %d",
+	     RelationGetRelid(node->ss.ss_currentRelation));
 
 	if (es->verbose)
 	{
@@ -764,7 +810,7 @@ cassExplainForeignScan(ForeignScanState *node, ExplainState *es)
 		cassGetOptions(RelationGetRelid(node->ss.ss_currentRelation),
 					   &svr_host, &svr_port,
 					   &svr_username, &svr_password,
-					   &svr_query, &svr_table, &primary_keys);
+					   &svr_query, &svr_table, &primary_key);
 
 		fdw_private = ((ForeignScan *) node->ss.ps.plan)->fdw_private;
 		sql = strVal(list_nth(fdw_private, CassFdwScanPrivateSelectSql));
@@ -788,6 +834,9 @@ cassBeginForeignScan(ForeignScanState *node, int eflags)
 	ForeignTable *table;
 	ForeignServer *server;
 	UserMapping *user;
+
+	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign scan for relation ID %d",
+	     RelationGetRelid(node->ss.ss_currentRelation));
 
 	/*
 	 * Do nothing in EXPLAIN (no ANALYZE) case.  node->fdw_state stays NULL.
@@ -896,6 +945,9 @@ cassReScanForeignScan(ForeignScanState *node)
 {
 	CassFdwScanState *fsstate = (CassFdwScanState *) node->fdw_state;
 
+	elog(DEBUG1, CSTAR_FDW_NAME ": re-scan for foreign relation ID %d",
+	     RelationGetRelid(node->ss.ss_currentRelation));
+
 	/* If we haven't created the cursor yet, nothing to do. */
 	if (!fsstate->sql_sended)
 		return;
@@ -922,6 +974,9 @@ static void
 cassEndForeignScan(ForeignScanState *node)
 {
 	CassFdwScanState *fsstate = (CassFdwScanState *) node->fdw_state;
+
+	elog(DEBUG1, CSTAR_FDW_NAME ": end foreign scan for relation ID %d",
+	     RelationGetRelid(node->ss.ss_currentRelation));
 
 	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
 	if (fsstate == NULL)
@@ -950,16 +1005,16 @@ cassAddForeignUpdateTargets(Query *parsetree,
 {
 	Oid         relid        = RelationGetRelid(target_relation);
 	TupleDesc   tupdesc      = target_relation->rd_att;
-	const char *primary_keys = NULL;
+	const char *primary_key = NULL;
 	bool		has_PK       = false;
 	int         i;
 	
 	elog(DEBUG1, CSTAR_FDW_NAME
-	     ": add target column(s) for write on Relation ID %d", relid);
+	     ": add target column(s) for write on relation ID %d", relid);
 
-	cassGetPKOption(relid, &primary_keys);
+	cassGetPKOption(relid, &primary_key);
   
-	if (primary_keys == NULL)
+	if (primary_key == NULL)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
@@ -985,7 +1040,7 @@ cassAddForeignUpdateTargets(Query *parsetree,
 		Form_pg_attribute att = tupdesc->attrs[i];
 		AttrNumber attrno = att->attnum;
 
-		if (strncmp(NameStr(att->attname), primary_keys, strlen(primary_keys))
+		if (strncmp(NameStr(att->attname), primary_key, strlen(primary_key))
 			== 0)
 		{
 			Var *var;
@@ -1017,7 +1072,7 @@ cassAddForeignUpdateTargets(Query *parsetree,
 		ereport(ERROR,
 		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
 		         errmsg("The specified PRIMARY KEY '%s' does not exist in the "
-		                "FOREIGN TABLE '%s.%s'.", primary_keys,
+		                "FOREIGN TABLE '%s.%s'.", primary_key,
 		                pstrdup(get_namespace_name(RelationGetNamespace(
 			                                           target_relation))),
 		                pstrdup(RelationGetRelationName(target_relation))),
@@ -1029,32 +1084,333 @@ cassAddForeignUpdateTargets(Query *parsetree,
 	}
 }
 
+/*
+ * cassPlanForeignModify
+ *		Plan an INSERT/UPDATE/DELETE operation on a FOREIGN TABLE
+ *
+ * Note: currently, the plan tree generated for UPDATE/DELETE will always
+ * include a ForeignScan that retrieves PKs and then the ModifyTable node will
+ * have to execute individual remote UPDATE/DELETE commands.
+ */
 static List *
-cassPlanForeignModify(PlannerInfo *root, ModifyTable *plan,
-                      Index resultRelation, int subplan_index)
+cassPlanForeignModify(PlannerInfo *root,
+					  ModifyTable *plan,
+					  Index resultRelation,
+					  int subplan_index)
 {
+	CmdType		operation       = plan->operation;
+	RangeTblEntry  *rte             = planner_rt_fetch(resultRelation, root);
+	Relation        rel;
+	StringInfoData  sql;
+	List           *targetAttrs     = NIL;
+	List           *retrieved_attrs = NIL;
+	bool            doNothing       = false;
+	const char	   *primaryKey;
+
 	elog(DEBUG1, CSTAR_FDW_NAME ": plan foreign modify");
 
-	return NULL;
+	initStringInfo(&sql);
+
+	/*
+	 * Core code already has some lock on each rel being planned, so we can
+	 * use NoLock here.
+	 */
+	rel = heap_open(rte->relid, NoLock);
+
+	/*
+	 * In an INSERT, we transmit all columns that are defined in the FOREIGN
+	 * TABLE.  In an UPDATE, we transmit only columns that were explicitly
+	 * targets of the UPDATE, so as to avoid unnecessary data transmission.
+	 * (We can't do that for INSERT since we would miss sending default values
+	 * for columns not listed in the source statement.)
+	 */
+	if (operation == CMD_INSERT)
+	{
+		TupleDesc	tupdesc = RelationGetDescr(rel);
+		int			attnum;
+
+		for (attnum = 1; attnum <= tupdesc->natts; attnum++)
+		{
+			Form_pg_attribute attr = tupdesc->attrs[attnum - 1];
+
+			if (!attr->attisdropped)
+				targetAttrs = lappend_int(targetAttrs, attnum);
+		}
+	}
+	else if (operation == CMD_UPDATE)
+	{
+		int			col;
+
+		col = -1;
+		while ((col = bms_next_member(rte->updatedCols, col)) >= 0)
+		{
+			/* bit numbers are offset by FirstLowInvalidHeapAttributeNumber */
+			AttrNumber	attno = col + FirstLowInvalidHeapAttributeNumber;
+
+			if (attno <= InvalidAttrNumber)		/* shouldn't happen */
+				elog(ERROR, "system-column update is not supported");
+			targetAttrs = lappend_int(targetAttrs, attno);
+		}
+	}
+
+#if PG_VERSION_NUM >= 90500
+	/*
+	 * ON CONFLICT DO UPDATE and DO NOTHING case with inference specification
+	 * should have already been rejected in the optimizer, as presently there
+	 * is no way to recognize an arbiter index on a foreign table.  Only DO
+	 * NOTHING is supported without an inference specification.
+	 */
+	if (plan->onConflictAction == ONCONFLICT_NOTHING)
+		doNothing = true;
+	else if (plan->onConflictAction != ONCONFLICT_NONE)
+		elog(ERROR, "unexpected ON CONFLICT specification: %d",
+			 (int) plan->onConflictAction);
+#endif /* PG_VERSION_NUM >= 90500 */
+
+	cassGetPKOption(rte->relid, &primaryKey);
+	/*
+	 * Construct the SQL command string.
+	 */
+	switch (operation)
+	{
+		case CMD_INSERT:
+			deparseInsertSql(&sql, root, resultRelation, rel,
+							 targetAttrs, doNothing);
+			break;
+		case CMD_UPDATE:
+			deparseUpdateSql(&sql, root, resultRelation, rel,
+							 targetAttrs, primaryKey);
+			break;
+		case CMD_DELETE:
+			deparseDeleteSql(&sql, root, resultRelation, rel,
+							 &retrieved_attrs, primaryKey);
+			break;
+		default:
+			elog(ERROR, "unexpected operation: %d", (int) operation);
+			break;
+	}
+
+	heap_close(rel, NoLock);
+
+	/*
+	 * Build the fdw_private list that will be available to the executor.
+	 * Items in the list must match enum FdwModifyPrivateIndex, above.
+	 */
+	return list_make4(makeString(sql.data),
+					  targetAttrs,
+					  makeInteger((retrieved_attrs != NIL)),
+					  retrieved_attrs);
 }
 
+/*
+ * cassBeginForeignModify
+ *		Begin an INSERT/UPDATE/DELETE operation on a foreign table
+ */
 static void cassBeginForeignModify(ModifyTableState *mtstate,
-                                   ResultRelInfo *rinfo, List *fdw_private,
-                                   int subplan_index, int eflags)
+                                   ResultRelInfo *resultRelInfo,
+                                   List *fdw_private, int subplan_index,
+                                   int eflags)
 {
-	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign modify");
+	CassFdwModifyState *fmstate;
+	EState             *estate    = mtstate->ps.state;
+	CmdType             operation = mtstate->operation;
+	Relation            rel       = resultRelInfo->ri_RelationDesc;
+	RangeTblEntry      *rte;
+	Oid                 userid;
+	ForeignTable       *table;
+	ForeignServer      *server;
+	UserMapping        *user;
+	AttrNumber          n_params;
+	ListCell           *lc;
+	const char         *primaryKey;
+
+	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign modify on relation ID %d",
+		RelationGetRelid(resultRelInfo->ri_RelationDesc));
+
+	/*
+	 * Do nothing in EXPLAIN (no ANALYZE) case.  resultRelInfo->ri_FdwState
+	 * stays NULL.
+	 */
+	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
+		return;
+
+	/* Begin constructing CassFdwModifyState. */
+	fmstate = (CassFdwModifyState *) palloc0(sizeof(CassFdwModifyState));
+	fmstate->rel = rel;
+
+	/*
+	 * Identify which user to do the remote access as.  This should match what
+	 * ExecCheckRTEPerms() does.
+	 */
+	rte = rt_fetch(resultRelInfo->ri_RangeTableIndex, estate->es_range_table);
+	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
+
+	/* Get info about foreign table. */
+	table = GetForeignTable(RelationGetRelid(rel));
+	server = GetForeignServer(table->serverid);
+	user = GetUserMapping(userid, server->serverid);
+
+	/*
+	 * Get connection to the foreign server.  Connection manager will
+	 * establish new connection if necessary.
+	 */
+	fmstate->cass_conn = pgcass_GetConnection(server, user, false);
+	fmstate->sql_sent = false;
+
+	/* Deconstruct fdw_private data. */
+	fmstate->query = strVal(list_nth(fdw_private,
+									 FdwModifyPrivateUpdateSql));
+	fmstate->target_attrs = (List *) list_nth(fdw_private,
+											  FdwModifyPrivateTargetAttnums);
+	fmstate->has_returning = intVal(list_nth(fdw_private,
+											 FdwModifyPrivateHasReturning));
+	fmstate->retrieved_attrs = (List *) list_nth(fdw_private,
+											 FdwModifyPrivateRetrievedAttrs);
+
+	/* Create context for per-tuple temp workspace. */
+	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
+	                                          "cstar_fdw temporary data",
+	                                          ALLOCSET_SMALL_MINSIZE,
+	                                          ALLOCSET_SMALL_INITSIZE,
+	                                          ALLOCSET_SMALL_MAXSIZE);
+
+	/* Prepare for input conversion of RETURNING results. */
+	if (fmstate->has_returning)
+		fmstate->attinmeta = TupleDescGetAttInMetadata(RelationGetDescr(rel));
+
+	/* Prepare for output conversion of parameters used in modify stmt. */
+	n_params = list_length(fmstate->target_attrs) + 1;
+	fmstate->p_type_oids = (Oid *) palloc0(sizeof(Oid) * n_params);
+	fmstate->p_nums = 0;
+
+	if (operation == CMD_INSERT || operation == CMD_UPDATE)
+	{
+		/* Set up for remaining transmittable parameters */
+		foreach(lc, fmstate->target_attrs)
+		{
+			int			attnum = lfirst_int(lc);
+			Form_pg_attribute attr = RelationGetDescr(rel)->attrs[attnum - 1];
+
+			Assert(!attr->attisdropped);
+
+			fmstate->p_type_oids[fmstate->p_nums] = attr->atttypid;
+			fmstate->p_nums++;
+		}
+	}
+
+	if (operation == CMD_UPDATE || operation == CMD_DELETE)
+	{
+		/* Find the key resjunk column in the subplan's result */
+		Plan              *subplan = mtstate->mt_plans[subplan_index]->plan;
+		Form_pg_attribute  attr;
+		AttrNumber         attnum;
+
+		cassGetPKOption(rel->rd_id, &primaryKey);
+
+		fmstate->keyAttno = ExecFindJunkAttributeInTlist(subplan->targetlist,
+		                                                 primaryKey);
+
+		if (!AttributeNumberIsValid(fmstate->keyAttno))
+			ereport(ERROR,
+			        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+			         errmsg("%s: Internal error -- could not find the "
+			                "junk attribute in the target list "
+			                "and modifying without a key is not possible",
+			                CSTAR_FDW_NAME)));
+
+		attnum = get_attnum(rel->rd_id, primaryKey);
+		elog(DEBUG5, CSTAR_FDW_NAME ": The PK attribute number is %d", attnum);
+
+		attr = RelationGetDescr(rel)->attrs[attnum - 1];
+
+		Assert(strncmp(NameStr(attr->attname), primaryKey, strlen(primaryKey))
+		       == 0);
+
+		elog(DEBUG5, CSTAR_FDW_NAME
+		     ": The PK attribute name after mapping is %s",
+		     NameStr(attr->attname));
+
+		fmstate->p_type_oids[fmstate->p_nums] = attr->atttypid;
+		fmstate->p_nums++;
+	}
+
+	Assert(fmstate->p_nums <= n_params);
+
+	resultRelInfo->ri_FdwState = fmstate;
 }
 
+/*
+ * cassExecForeignInsert
+ *		Insert one row into a FOREIGN TABLE
+ */
 static TupleTableSlot *cassExecForeignInsert(EState *estate,
-                                             ResultRelInfo *rinfo,
+                                             ResultRelInfo *resultRelInfo,
                                              TupleTableSlot *slot,
                                              TupleTableSlot *planSlot)
 {
-	ereport(ERROR,
-	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg(__func__)));
+	CassFdwModifyState *fmstate = (CassFdwModifyState *) resultRelInfo->ri_FdwState;
+	int                 pindex  = 0;
+	MemoryContext       oldcontext;
+	CassFuture*         future  = NULL;
+	CassError           rc      = CASS_OK;
 
-	return NULL;
+	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign insert on relation ID %d",
+		RelationGetRelid(resultRelInfo->ri_RelationDesc));
+
+	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
+
+	if (!fmstate->sql_sent)
+		fmstate->statement = cass_statement_new(fmstate->query,
+		                                        fmstate->p_nums);
+
+	if (slot != NULL && fmstate->target_attrs != NIL)
+	{
+		ListCell   *lc;
+
+		foreach(lc, fmstate->target_attrs)
+		{
+			int   attnum = lfirst_int(lc);
+			Datum value;
+			bool  isnull;
+
+			value = slot_getattr(slot, attnum, &isnull);
+			if (isnull)
+				cass_statement_bind_null(fmstate->statement, pindex);
+			else
+				bind_cass_statement_param(fmstate->p_type_oids[pindex],
+				                          attnum, value,
+				                          fmstate->statement, pindex);
+
+			pindex++;
+		}
+
+		Assert(pindex == fmstate->p_nums);
+	}
+
+	future = cass_session_execute(fmstate->cass_conn, fmstate->statement);
+	fmstate->sql_sent = true;
+	cass_future_wait(future);
+
+	rc = cass_future_error_code(future);
+
+	if (rc != CASS_OK)
+	{
+		const char* message;
+		size_t message_length;
+		cass_future_error_message(future, &message, &message_length);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+		         errmsg("Failed to execute the INSERT into Cassandra: %.*s",
+		                (int)message_length, message)));
+	}
+
+	cass_future_free(future);
+	MemoryContextSwitchTo(oldcontext);
+
+	MemoryContextReset(fmstate->temp_cxt);
+
+	return slot;
 }
 
 static TupleTableSlot *cassExecForeignUpdate(EState *estate,
@@ -1081,11 +1437,27 @@ static TupleTableSlot *cassExecForeignDelete(EState *estate,
 	return NULL;
 }
 
-static void cassEndForeignModify(EState *estate, ResultRelInfo *rinfo)
+static void cassEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo)
 {
-	ereport(ERROR,
-	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg(__func__)));
+	CassFdwModifyState *fmstate = (CassFdwModifyState *)
+		resultRelInfo->ri_FdwState;
+
+	elog(DEBUG1, CSTAR_FDW_NAME ": end foreign modify for relation ID %d",
+	     RelationGetRelid(resultRelInfo->ri_RelationDesc));
+
+	/* if fmstate is NULL, we are in EXPLAIN; nothing to do */
+	if (fmstate == NULL)
+		return;
+
+	/* Close the statement if open */
+	if (fmstate->statement && fmstate->sql_sent)
+		cass_statement_free(fmstate->statement);
+
+	/* Release remote connection */
+	pgcass_ReleaseConnection(fmstate->cass_conn);
+	fmstate->cass_conn = NULL;
+
+	/* MemoryContexts will be deleted automatically. */
 }
 
 static void cassExplainForeignModify(ModifyTableState *mtstate,
@@ -1322,6 +1694,13 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 		appendStringInfoString(buf, b ? "true" : "false");
 		break;
 	}
+	case CASS_VALUE_TYPE_FLOAT:
+	{
+		cass_float_t d;
+		cass_value_get_float(value, &d);
+		appendStringInfo(buf, "%f", d);
+		break;
+	}
 	case CASS_VALUE_TYPE_DOUBLE:
 	{
 		cass_double_t d;
@@ -1358,17 +1737,6 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 	}
 }
 
-
-static void deparseTargetList(StringInfo buf,
-				  PlannerInfo *root,
-				  Index rtindex,
-				  Relation rel,
-				  Bitmapset *attrs_used,
-				  List **retrieved_attrs);
-static void deparseColumnRef(StringInfo buf, int varno, int varattno,
-				 PlannerInfo *root);
-static void deparseRelation(StringInfo buf, Relation rel);
-
 /*
  * Examine each qual clause in input_conds, and classify them into two groups,
  * which are returned as two lists:
@@ -1396,200 +1764,66 @@ classifyConditions(PlannerInfo *root,
 }
 
 /*
- * Construct a simple SELECT statement that retrieves desired columns
- * of the specified foreign table, and append it to "buf".  The output
- * contains just "SELECT ... FROM tablename".
+ * bind_cass_statement_param
  *
- * We also create an integer List of the columns being retrieved, which is
- * returned to *retrieved_attrs.
+ * 	Map a parameter to its corresponding bind call for the Cassandra C(++)
+ * 	Driver.
  */
-static void
-deparseSelectSql(StringInfo buf,
-				 PlannerInfo *root,
-				 RelOptInfo *baserel,
-				 Bitmapset *attrs_used,
-				 List **retrieved_attrs)
+static void bind_cass_statement_param(Oid type, int attnum, Datum value,
+                                      CassStatement *statement, int pindex)
 {
-	RangeTblEntry *rte = planner_rt_fetch(baserel->relid, root);
-	Relation	rel;
-
-	/*
-	 * Core code already has some lock on each rel being planned, so we can
-	 * use NoLock here.
-	 */
-	rel = heap_open(rte->relid, NoLock);
-
-	/*
-	 * Construct SELECT list
-	 */
-	appendStringInfoString(buf, "SELECT ");
-	deparseTargetList(buf, root, baserel->relid, rel, attrs_used,
-					  retrieved_attrs);
-
-	/*
-	 * Construct FROM clause
-	 */
-	appendStringInfoString(buf, " FROM ");
-	deparseRelation(buf, rel);
-
-	heap_close(rel, NoLock);
-}
-
-
-/*
- * Emit a target list that retrieves the columns specified in attrs_used.
- * This is used for both SELECT and RETURNING targetlists.
- *
- * The tlist text is appended to buf, and we also create an integer List
- * of the columns being retrieved, which is returned to *retrieved_attrs.
- */
-static void
-deparseTargetList(StringInfo buf,
-				  PlannerInfo *root,
-				  Index rtindex,
-				  Relation rel,
-				  Bitmapset *attrs_used,
-				  List **retrieved_attrs)
-{
-	TupleDesc	tupdesc = RelationGetDescr(rel);
-	bool		have_wholerow;
-	bool		first;
-	int			i;
-
-	*retrieved_attrs = NIL;
-
-	/* If there's a whole-row reference, we'll need all the columns. */
-	have_wholerow = bms_is_member(0 - FirstLowInvalidHeapAttributeNumber,
-								  attrs_used);
-
-	first = true;
-	for (i = 1; i <= tupdesc->natts; i++)
+	switch (type)
 	{
-		Form_pg_attribute attr = tupdesc->attrs[i - 1];
-
-		/* Ignore dropped attributes. */
-		if (attr->attisdropped)
-			continue;
-
-		if (have_wholerow ||
-			bms_is_member(i - FirstLowInvalidHeapAttributeNumber,
-						  attrs_used))
+		case INT2OID:
 		{
-			if (!first)
-				appendStringInfoString(buf, ", ");
-			first = false;
-
-			deparseColumnRef(buf, rtindex, i, root);
-
-			*retrieved_attrs = lappend_int(*retrieved_attrs, i);
+			int16 int16_val = DatumGetInt16(value);
+			cass_statement_bind_int16(statement, pindex, int16_val);
+			break;
 		}
-	}
-
-	/*
-	 * Add ctid if needed.  We currently don't support retrieving any other
-	 * system columns.
-	 */
-	if (bms_is_member(SelfItemPointerAttributeNumber - FirstLowInvalidHeapAttributeNumber,
-					  attrs_used))
-	{
-		if (!first)
-			appendStringInfoString(buf, ", ");
-		first = false;
-
-		appendStringInfoString(buf, "ctid");
-
-		*retrieved_attrs = lappend_int(*retrieved_attrs,
-									   SelfItemPointerAttributeNumber);
-	}
-
-	/* Don't generate bad syntax if no undropped columns */
-	if (first)
-		appendStringInfoString(buf, "NULL");
-}
-
-/*
- * Construct name to use for given column, and emit it into buf.
- * If it has a column_name FDW option, use that instead of attribute name.
- */
-static void
-deparseColumnRef(StringInfo buf, int varno, int varattno, PlannerInfo *root)
-{
-	RangeTblEntry *rte;
-	char	   *colname = NULL;
-	List	   *options;
-	ListCell   *lc;
-
-	/* varno must not be any of OUTER_VAR, INNER_VAR and INDEX_VAR. */
-	Assert(!IS_SPECIAL_VARNO(varno));
-
-	/* Get RangeTblEntry from array in PlannerInfo. */
-	rte = planner_rt_fetch(varno, root);
-
-	/*
-	 * If it's a column of a foreign table, and it has the column_name FDW
-	 * option, use that value.
-	 */
-	options = GetForeignColumnOptions(rte->relid, varattno);
-	foreach(lc, options)
-	{
-		DefElem    *def = (DefElem *) lfirst(lc);
-
-		if (strcmp(def->defname, "column_name") == 0)
+		case INT4OID:
 		{
-			colname = defGetString(def);
+			int32 int32_val = DatumGetInt32(value);
+			cass_statement_bind_int32(statement, pindex, int32_val);
+			break;
+		}
+		case INT8OID:
+		{
+			int64 int64_val = DatumGetInt64(value);
+			cass_statement_bind_int64(statement, pindex, int64_val);
+			break;
+		}
+		case FLOAT4OID:
+		{
+			float4 float4_val = DatumGetFloat4(value);
+			cass_statement_bind_float(statement, pindex, float4_val);
+			break;
+		}
+		case FLOAT8OID:
+		{
+			float8 float8_val = DatumGetFloat8(value);
+			cass_statement_bind_double(statement, pindex, float8_val);
+			break;
+		}
+		case TEXTOID:
+		case VARCHAROID:
+		case BPCHAROID:
+		{
+			char *str_val = NULL;
+			Oid output_func_oid = InvalidOid;
+			bool type_var_length = false;
+
+			getTypeOutputInfo(type, &output_func_oid, &type_var_length);
+			str_val = OidOutputFunctionCall(output_func_oid, value);
+
+			cass_statement_bind_string(statement, pindex, str_val);
+			break;
+		}
+		default:
+		{
+			ereport(ERROR,
+			        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			         errmsg("Data type with OID %d not supported.", type)));
 			break;
 		}
 	}
-
-	/*
-	 * If it's a column of a regular table or it doesn't have column_name FDW
-	 * option, use attribute name.
-	 */
-	if (colname == NULL)
-		colname = get_relid_attribute_name(rte->relid, varattno);
-
-	appendStringInfoString(buf, quote_identifier(colname));
-}
-
-
-/*
- * Append remote name of specified foreign table to buf.
- * Use value of table_name FDW option (if any) instead of relation's name.
- * Similarly, schema_name FDW option overrides schema name.
- */
-static void
-deparseRelation(StringInfo buf, Relation rel)
-{
-	ForeignTable *table;
-	const char *nspname = NULL;
-	const char *relname = NULL;
-	ListCell   *lc;
-
-	/* obtain additional catalog information. */
-	table = GetForeignTable(RelationGetRelid(rel));
-
-	/*
-	 * Use value of FDW options if any, instead of the name of object itself.
-	 */
-	foreach(lc, table->options)
-	{
-		DefElem    *def = (DefElem *) lfirst(lc);
-
-		if (strcmp(def->defname, "schema_name") == 0)
-			nspname = defGetString(def);
-		else if (strcmp(def->defname, "table_name") == 0)
-			relname = defGetString(def);
-	}
-
-	/*
-	 * Note: we could skip printing the schema name if it's pg_catalog, but
-	 * that doesn't seem worth the trouble.
-	 */
-	if (nspname == NULL)
-		nspname = get_namespace_name(RelationGetNamespace(rel));
-	if (relname == NULL)
-		relname = RelationGetRelationName(rel);
-
-	appendStringInfo(buf, "%s.%s",
-					 quote_identifier(nspname), quote_identifier(relname));
 }
