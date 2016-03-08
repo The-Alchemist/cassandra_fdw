@@ -61,7 +61,6 @@ struct CassFdwOption
 	Oid			optcontext;		/* Oid of catalog in which option may appear */
 };
 
-
 static struct CassFdwOption valid_options[] =
 {
 	/* Connection options */
@@ -1447,6 +1446,10 @@ static TupleTableSlot *cassExecForeignDelete(EState *estate,
 		estate, resultRelInfo, slot, planSlot, "DELETE");
 }
 
+/*
+ * cassEndForeignModify
+ *		Finish an INSERT/UPDATE/DELETE operation on a FOREIGN TABLE.
+ */
 static void cassEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo)
 {
 	CassFdwModifyState *fmstate = (CassFdwModifyState *)
@@ -1478,6 +1481,11 @@ static void cassExplainForeignModify(ModifyTableState *mtstate,
 	elog(DEBUG1, CSTAR_FDW_NAME ": explain foreign modify");
 }
 
+/*
+ * cassIsForeignRelUpdatable
+ *		Determine whether a FOREIGN TABLE supports INSERT, UPDATE and/or
+ *		DELETE.
+ */
 static int	cassIsForeignRelUpdatable(Relation rel)
 {
 	/*
