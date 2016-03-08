@@ -84,10 +84,6 @@ cassDeparseRelation(StringInfo buf, Relation rel)
 			relname = defGetString(def);
 	}
 
-	/*
-	 * Note: we could skip printing the schema name if it's pg_catalog, but
-	 * that doesn't seem worth the trouble.
-	 */
 	if (nspname == NULL)
 		nspname = get_namespace_name(RelationGetNamespace(rel));
 	if (relname == NULL)
