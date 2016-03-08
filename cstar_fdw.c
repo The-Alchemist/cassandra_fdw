@@ -288,8 +288,17 @@ static void classifyConditions(PlannerInfo *root,
 				   List *input_conds,
 				   List **remote_conds,
 				   List **local_conds);
-static void bind_cass_statement_param(Oid type, Datum value,
-                                      CassStatement *statement, int pindex);
+#ifdef CSTAR_FDW_WRITE_API
+static void
+bind_cass_statement_param(Oid type, Datum value,
+						  CassStatement * statement, int pindex);
+static TupleTableSlot *
+cassExecPKPredWrite(EState *estate,
+					ResultRelInfo *resultRelInfo,
+					TupleTableSlot *slot,
+					TupleTableSlot *planSlot,
+                    const char *cqlOpName);
+#endif /* CSTAR_FDW_WRITE_API */
 
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
@@ -1412,113 +1421,30 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 	return slot;
 }
 
+/*
+ * cassExecForeignUpdate
+ *		Update one row in a FOREIGN TABLE
+ */
 static TupleTableSlot *cassExecForeignUpdate(EState *estate,
                                              ResultRelInfo *resultRelInfo,
                                              TupleTableSlot *slot,
                                              TupleTableSlot *planSlot)
 {
-	CassFdwModifyState *fmstate = (CassFdwModifyState *) resultRelInfo->ri_FdwState;
-	int                 pindex  = 0;
-	MemoryContext       oldcontext;
-	CassFuture*         future  = NULL;
-	CassError           rc      = CASS_OK;
-	Datum               value;
-	bool                isnull;
-
-	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign UPDATE on relation ID %d",
-		RelationGetRelid(resultRelInfo->ri_RelationDesc));
-
-	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
-
-	if (!fmstate->sql_sent)
-		fmstate->statement = cass_statement_new(fmstate->query,
-		                                        fmstate->p_nums);
-
-	if (slot != NULL && fmstate->target_attrs != NIL)
-	{
-		ListCell   *lc;
-
-		foreach(lc, fmstate->target_attrs)
-		{
-			int   attnum = lfirst_int(lc);
-
-			value = slot_getattr(slot, attnum, &isnull);
-			if (isnull)
-				cass_statement_bind_null(fmstate->statement, pindex);
-			else
-				bind_cass_statement_param(fmstate->p_type_oids[pindex],
-				                          value, fmstate->statement, pindex);
-
-			pindex++;
-		}
-	}
-
-	/* Retrieve the key from the resjunk attribute */
-	value = ExecGetJunkAttribute(planSlot, fmstate->keyAttno, &isnull);
-
-	if (isnull)					/* PRIMARY KEY value should not be NULL */
-	{
-		const char *primary_key;
-		Relation    relation = resultRelInfo->ri_RelationDesc;
-		Oid         rid      = RelationGetRelid(relation);
-
-		cassGetPKOption(rid, &primary_key);
-
-		ereport(ERROR,
-		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
-		         errmsg("The specified PRIMARY KEY '%s' contains a NULL value"
-		                "for the FOREIGN TABLE '%s.%s'.", primary_key,
-		                pstrdup(get_namespace_name(RelationGetNamespace(
-			                                           relation))),
-		                pstrdup(RelationGetRelationName(relation))),
-		         errdetail("For UPDATE or DELETE, a valid PRIMARY KEY must be "
-		                   "defined for the FOREIGN TABLE."),
-		         errhint("Set the FOREIGN TABLE OPTION '%s' to a "
-		                 "valid PRIMARY KEY column.",
-		                 OPT_PK)));
-	}
-
-	bind_cass_statement_param(fmstate->p_type_oids[pindex], value,
-	                          fmstate->statement, pindex);
-	pindex++;
-	Assert(pindex == fmstate->p_nums);
-
-	future = cass_session_execute(fmstate->cass_conn, fmstate->statement);
-	fmstate->sql_sent = true;
-	cass_future_wait(future);
-
-	rc = cass_future_error_code(future);
-
-	if (rc != CASS_OK)
-	{
-		const char* message;
-		size_t message_length;
-		cass_future_error_message(future, &message, &message_length);
-
-		ereport(ERROR,
-		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
-		         errmsg("Failed to execute the UPDATE into Cassandra: %.*s",
-		                (int)message_length, message)));
-	}
-
-	cass_future_free(future);
-	MemoryContextSwitchTo(oldcontext);
-
-	MemoryContextReset(fmstate->temp_cxt);
-
-	return slot;
+	return cassExecPKPredWrite(
+		estate, resultRelInfo, slot, planSlot, "UPDATE");
 }
 
+/*
+ * cassExecForeignDelete
+ *		Delete one row from a FOREIGN TABLE
+ */
 static TupleTableSlot *cassExecForeignDelete(EState *estate,
-                                             ResultRelInfo *rinfo,
+                                             ResultRelInfo *resultRelInfo,
                                              TupleTableSlot *slot,
                                              TupleTableSlot *planSlot)
 {
-	ereport(ERROR,
-	        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	         errmsg(__func__)));
-
-	return NULL;
+	return cassExecPKPredWrite(
+		estate, resultRelInfo, slot, planSlot, "DELETE");
 }
 
 static void cassEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo)
@@ -1847,6 +1773,7 @@ classifyConditions(PlannerInfo *root,
 	}
 }
 
+#ifdef CSTAR_FDW_WRITE_API
 /*
  * bind_cass_statement_param
  *
@@ -1911,3 +1838,105 @@ static void bind_cass_statement_param(Oid type, Datum value,
 		}
 	}
 }
+
+static TupleTableSlot *
+cassExecPKPredWrite(EState *estate,
+					ResultRelInfo *resultRelInfo,
+					TupleTableSlot *slot,
+					TupleTableSlot *planSlot,
+					const char *cqlOpName)
+{
+		CassFdwModifyState *fmstate = (CassFdwModifyState *) resultRelInfo->ri_FdwState;
+	int                 pindex  = 0;
+	MemoryContext       oldcontext;
+	CassFuture*         future  = NULL;
+	CassError           rc      = CASS_OK;
+	Datum               value;
+	bool                isnull;
+
+	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign %s on relation ID %d",
+		 cqlOpName, RelationGetRelid(resultRelInfo->ri_RelationDesc));
+
+
+	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
+
+	if (!fmstate->sql_sent)
+		fmstate->statement = cass_statement_new(fmstate->query,
+		                                        fmstate->p_nums);
+
+	if (slot != NULL && fmstate->target_attrs != NIL)
+	{
+		ListCell   *lc;
+
+		foreach(lc, fmstate->target_attrs)
+		{
+			int   attnum = lfirst_int(lc);
+
+			value = slot_getattr(slot, attnum, &isnull);
+			if (isnull)
+				cass_statement_bind_null(fmstate->statement, pindex);
+			else
+				bind_cass_statement_param(fmstate->p_type_oids[pindex],
+				                          value, fmstate->statement, pindex);
+
+			pindex++;
+		}
+	}
+
+	/* Retrieve the key from the resjunk attribute */
+	value = ExecGetJunkAttribute(planSlot, fmstate->keyAttno, &isnull);
+
+	if (isnull)					/* PRIMARY KEY value should not be NULL */
+	{
+		const char *primary_key;
+		Relation    relation = resultRelInfo->ri_RelationDesc;
+		Oid         rid      = RelationGetRelid(relation);
+
+		cassGetPKOption(rid, &primary_key);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+		         errmsg("The specified PRIMARY KEY '%s' contains a NULL value"
+		                "for the FOREIGN TABLE '%s.%s'.", primary_key,
+		                pstrdup(get_namespace_name(RelationGetNamespace(
+			                                           relation))),
+		                pstrdup(RelationGetRelationName(relation))),
+		         errdetail("For UPDATE or DELETE, a valid PRIMARY KEY must be "
+		                   "defined for the FOREIGN TABLE."),
+		         errhint("Set the FOREIGN TABLE OPTION '%s' to a "
+		                 "valid PRIMARY KEY column.",
+		                 OPT_PK)));
+	}
+
+	bind_cass_statement_param(fmstate->p_type_oids[pindex], value,
+	                          fmstate->statement, pindex);
+	pindex++;
+	Assert(pindex == fmstate->p_nums);
+
+	future = cass_session_execute(fmstate->cass_conn, fmstate->statement);
+	fmstate->sql_sent = true;
+	cass_future_wait(future);
+
+	rc = cass_future_error_code(future);
+
+	if (rc != CASS_OK)
+	{
+		const char* message;
+		size_t message_length;
+		cass_future_error_message(future, &message, &message_length);
+
+		ereport(ERROR,
+		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+		         errmsg("Failed to execute the %s into Cassandra: %.*s",
+		                cqlOpName, (int)message_length, message)));
+	}
+
+	cass_future_free(future);
+	MemoryContextSwitchTo(oldcontext);
+
+	MemoryContextReset(fmstate->temp_cxt);
+
+	return slot;
+}
+
+#endif /* CSTAR_FDW_WRITE_API */
