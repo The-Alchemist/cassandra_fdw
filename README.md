@@ -51,8 +51,12 @@ Here is an example:
 	-- Create a user mapping for the server.
 	CREATE USER MAPPING FOR public SERVER cass_serv OPTIONS(username 'test', password 'test');
 
-	-- Create a foreign table on the server.
-	CREATE FOREIGN TABLE test (id int) SERVER cass_serv OPTIONS (schema_name 'example', table_name 'oorder');
+	-- CREATE a FOREIGN TABLE on the server.
+	--
+	-- Note that a valid "primary_key" OPTION is required in order to use
+	-- UPDATE or DELETE support.
+	CREATE FOREIGN TABLE test (id int) SERVER cass_serv OPTIONS
+        (schema_name 'example', table_name 'oorder', primary_key 'id');
 
 	-- Query the foreign table.
 	SELECT * FROM test limit 5;
