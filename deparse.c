@@ -14,7 +14,7 @@
  * Portions Copyright (c) 2012-2015, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
- *		  contrib/postgres_fdw/deparse.c
+ *		  contrib/cstar_fdw/deparse.c
  *
  *-------------------------------------------------------------------------
  */
@@ -45,15 +45,15 @@
 /*
  * Functions to construct string representation of a node tree.
  */
-static void deparseTargetList(StringInfo buf,
-				  PlannerInfo *root,
-				  Index rtindex,
-				  Relation rel,
-				  Bitmapset *attrs_used,
-				  List **retrieved_attrs);
-static void deparseColumnRef(StringInfo buf, int varno, int varattno,
-				 PlannerInfo *root);
-static void deparseRelation(StringInfo buf, Relation rel);
+static void cassDeparseTargetList(StringInfo buf,
+					  PlannerInfo *root,
+					  Index rtindex,
+					  Relation rel,
+					  Bitmapset *attrs_used,
+					  List **retrieved_attrs);
+static void cassDeparseColumnRef(StringInfo buf, int varno, int varattno,
+					 PlannerInfo *root);
+static void cassDeparseRelation(StringInfo buf, Relation rel);
 
 /*
  * Append remote name of specified foreign table to buf.
@@ -61,7 +61,7 @@ static void deparseRelation(StringInfo buf, Relation rel);
  * Similarly, schema_name FDW option overrides schema name.
  */
 static void
-deparseRelation(StringInfo buf, Relation rel)
+cassDeparseRelation(StringInfo buf, Relation rel)
 {
 	ForeignTable *table;
 	const char *nspname = NULL;
@@ -102,7 +102,7 @@ deparseRelation(StringInfo buf, Relation rel)
  * If it has a column_name FDW option, use that instead of attribute name.
  */
 static void
-deparseColumnRef(StringInfo buf, int varno, int varattno, PlannerInfo *root)
+cassDeparseColumnRef(StringInfo buf, int varno, int varattno, PlannerInfo *root)
 {
 	RangeTblEntry *rte;
 	char	   *colname = NULL;
@@ -149,7 +149,7 @@ deparseColumnRef(StringInfo buf, int varno, int varattno, PlannerInfo *root)
  * of the columns being retrieved, which is returned to *retrieved_attrs.
  */
 static void
-deparseTargetList(StringInfo buf,
+cassDeparseTargetList(StringInfo buf,
                   PlannerInfo *root,
                   Index rtindex,
                   Relation rel,
@@ -184,27 +184,10 @@ deparseTargetList(StringInfo buf,
 				appendStringInfoString(buf, ", ");
 			first = false;
 
-			deparseColumnRef(buf, rtindex, i, root);
+			cassDeparseColumnRef(buf, rtindex, i, root);
 
 			*retrieved_attrs = lappend_int(*retrieved_attrs, i);
 		}
-	}
-
-	/*
-	 * Add ctid if needed.  We currently don't support retrieving any other
-	 * system columns.
-	 */
-	if (bms_is_member(SelfItemPointerAttributeNumber - FirstLowInvalidHeapAttributeNumber,
-	                  attrs_used))
-	{
-		if (!first)
-			appendStringInfoString(buf, ", ");
-		first = false;
-
-		appendStringInfoString(buf, "ctid");
-
-		*retrieved_attrs = lappend_int(*retrieved_attrs,
-		                               SelfItemPointerAttributeNumber);
 	}
 
 	/* Don't generate bad syntax if no undropped columns */
@@ -221,7 +204,7 @@ deparseTargetList(StringInfo buf,
  * returned to *retrieved_attrs.
  */
 void
-deparseSelectSql(StringInfo buf,
+cassDeparseSelectSql(StringInfo buf,
                  PlannerInfo *root,
                  RelOptInfo *baserel,
                  Bitmapset *attrs_used,
@@ -240,14 +223,14 @@ deparseSelectSql(StringInfo buf,
 	 * Construct SELECT list
 	 */
 	appendStringInfoString(buf, "SELECT ");
-	deparseTargetList(buf, root, baserel->relid, rel, attrs_used,
+	cassDeparseTargetList(buf, root, baserel->relid, rel, attrs_used,
 	                  retrieved_attrs);
 
 	/*
 	 * Construct FROM clause
 	 */
 	appendStringInfoString(buf, " FROM ");
-	deparseRelation(buf, rel);
+	cassDeparseRelation(buf, rel);
 
 	elog(DEBUG1, CSTAR_FDW_NAME ": built the statement: %s", buf->data);
 
@@ -260,7 +243,7 @@ deparseSelectSql(StringInfo buf,
  * The statement text is appended to buf.
  */
 void
-deparseInsertSql(StringInfo buf, PlannerInfo *root,
+cassDeparseInsertSql(StringInfo buf, PlannerInfo *root,
 				 Index rtindex, Relation rel,
 				 List *targetAttrs, bool doNothing)
 {
@@ -269,7 +252,7 @@ deparseInsertSql(StringInfo buf, PlannerInfo *root,
 	ListCell   *lc;
 
 	appendStringInfoString(buf, "INSERT INTO ");
-	deparseRelation(buf, rel);
+	cassDeparseRelation(buf, rel);
 
 	if (targetAttrs)
 	{
@@ -284,7 +267,7 @@ deparseInsertSql(StringInfo buf, PlannerInfo *root,
 				appendStringInfoString(buf, ", ");
 			first = false;
 
-			deparseColumnRef(buf, rtindex, attnum, root);
+			cassDeparseColumnRef(buf, rtindex, attnum, root);
 		}
 
 		appendStringInfoString(buf, ") VALUES (");
@@ -318,7 +301,7 @@ deparseInsertSql(StringInfo buf, PlannerInfo *root,
  * The statement text is appended to buf.
  */
 void
-deparseUpdateSql(StringInfo buf, PlannerInfo *root,
+cassDeparseUpdateSql(StringInfo buf, PlannerInfo *root,
 				 Index rtindex, Relation rel,
 				 List *targetAttrs, const char *primaryKey)
 {
@@ -326,7 +309,7 @@ deparseUpdateSql(StringInfo buf, PlannerInfo *root,
 	ListCell   *lc;
 
 	appendStringInfoString(buf, "UPDATE ");
-	deparseRelation(buf, rel);
+	cassDeparseRelation(buf, rel);
 	appendStringInfoString(buf, " SET ");
 
 	first = true;
@@ -339,7 +322,7 @@ deparseUpdateSql(StringInfo buf, PlannerInfo *root,
 			appendStringInfoString(buf, ", ");
 		first = false;
 
-		deparseColumnRef(buf, rtindex, attnum, root);
+		cassDeparseColumnRef(buf, rtindex, attnum, root);
 		appendStringInfoString(buf, " = ?");
 	}
 
@@ -354,13 +337,13 @@ deparseUpdateSql(StringInfo buf, PlannerInfo *root,
  * The statement text is appended to buf.
  */
 void
-deparseDeleteSql(StringInfo buf, PlannerInfo *root,
+cassDeparseDeleteSql(StringInfo buf, PlannerInfo *root,
 				 Index rtindex, Relation rel,
 				 List **retrieved_attrs,
 				 const char *primaryKey)
 {
 	appendStringInfoString(buf, "DELETE FROM ");
-	deparseRelation(buf, rel);
+	cassDeparseRelation(buf, rel);
 	appendStringInfo(buf, " WHERE %s = ?", primaryKey);
 
 	elog(DEBUG1, CSTAR_FDW_NAME ": built the statement: %s", buf->data);

@@ -283,7 +283,7 @@ static HeapTuple make_tuple_from_result_row(const CassRow* row,
 										   List *retrieved_attrs,
 										   MemoryContext temp_context);
 
-static void classifyConditions(PlannerInfo *root,
+static void cassClassifyConditions(PlannerInfo *root,
 				   RelOptInfo *baserel,
 				   List *input_conds,
 				   List **remote_conds,
@@ -617,7 +617,7 @@ cassGetForeignRelSize(PlannerInfo *root,
 	 * Identify which baserestrictinfo clauses can be sent to the remote
 	 * server and which can't.
 	 */
-	classifyConditions(root, baserel, baserel->baserestrictinfo,
+	cassClassifyConditions(root, baserel, baserel->baserestrictinfo,
 					   &fpinfo->remote_conds, &fpinfo->local_conds);
 
 	fpinfo->attrs_used = NULL;
@@ -754,7 +754,7 @@ cassGetForeignPlan(PlannerInfo *root,
 	 * expressions to be sent as parameters.
 	 */
 	initStringInfo(&sql);
-	deparseSelectSql(&sql, root, baserel, fpinfo->attrs_used,
+	cassDeparseSelectSql(&sql, root, baserel, fpinfo->attrs_used,
 					 &retrieved_attrs);
 
 	/*
@@ -1183,16 +1183,16 @@ cassPlanForeignModify(PlannerInfo *root,
 	switch (operation)
 	{
 		case CMD_INSERT:
-			deparseInsertSql(&sql, root, resultRelation, rel,
-							 targetAttrs, doNothing);
-			break;
+				cassDeparseInsertSql(&sql, root, resultRelation, rel,
+									 targetAttrs, doNothing);
+				break;
 		case CMD_UPDATE:
-			deparseUpdateSql(&sql, root, resultRelation, rel,
-							 targetAttrs, primaryKey);
-			break;
+				cassDeparseUpdateSql(&sql, root, resultRelation, rel,
+									 targetAttrs, primaryKey);
+				break;
 		case CMD_DELETE:
-			deparseDeleteSql(&sql, root, resultRelation, rel,
-							 &retrieved_attrs, primaryKey);
+				cassDeparseDeleteSql(&sql, root, resultRelation, rel,
+									 &retrieved_attrs, primaryKey);
 			break;
 		default:
 			elog(ERROR, "unexpected operation: %d", (int) operation);
@@ -1754,11 +1754,11 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
  *	- local_conds contains expressions that can't be evaluated remotely
  */
 static void
-classifyConditions(PlannerInfo *root,
-				   RelOptInfo *baserel,
-				   List *input_conds,
-				   List **remote_conds,
-				   List **local_conds)
+cassClassifyConditions(PlannerInfo *root,
+					   RelOptInfo *baserel,
+					   List *input_conds,
+					   List **remote_conds,
+					   List **local_conds)
 {
 	ListCell   *lc;
 
