@@ -1839,6 +1839,11 @@ static void bind_cass_statement_param(Oid type, Datum value,
 	}
 }
 
+/*
+ * cassExecPKPredWrite
+ *		Execute a PK-predicated write operation against Cassandra.
+ *		This is used for the remote UPDATE and DELETE execution.
+ */
 static TupleTableSlot *
 cassExecPKPredWrite(EState *estate,
 					ResultRelInfo *resultRelInfo,
