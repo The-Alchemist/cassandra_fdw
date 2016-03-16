@@ -1823,6 +1823,12 @@ static void bind_cass_statement_param(Oid type, Datum value,
 			cass_statement_bind_double(statement, pindex, float8_val);
 			break;
 		}
+		case BOOLOID:
+		{
+			bool bool_val = DatumGetBool(value);
+			cass_statement_bind_bool(statement, pindex, bool_val);
+			break;
+		}
 		case TEXTOID:
 		case VARCHAROID:
 		case BPCHAROID:
