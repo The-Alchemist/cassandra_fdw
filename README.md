@@ -9,20 +9,44 @@ Cassandra: http://cassandra.apache.org/
 ## Prepare
 
 In addition to normal PostgreSQL FDW pre-reqs, the primary specific
-requirement for this FDW is the Cassandra2 C/C++ driver 2.2.x
-(https://github.com/datastax/cpp-driver).
+requirement for this FDW is the Cassandra2 C/C++ driver version 2.3
+(https://github.com/datastax/cpp-driver) which we will set up as part of
+the following section.
 
 ## Build
 
-First, download the source code under the contrib subdirectory of the
-PostgreSQL source tree.
+### Download the source
 
-### Build and Install
+First, download the source code under the contrib subdirectory of the
+PostgreSQL source tree and change into the FDW subdirectory:
 
 ```
 cd cstar_fdw
+```
+
+### Build and Install cpp-driver
+
+Check out version 2.3 of the cpp-driver:
+
+```
+git clone git@github.com:datastax/cpp-driver.git
+cd cpp-driver
+git checkout 2.3.0
+```
+
+Next, build and install it:
+
+```
+cmake .
+make && sudo make install
+```
+
+### Build and Install cstar_fdw
+
+```
+cd ..
 USE_PGXS=1 make
-USE_PGXS=1 make install 
+USE_PGXS=1 make install
 ```
 
 ## Usage
