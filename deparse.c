@@ -11,7 +11,7 @@
  * We schema-qualify all names in this module.
  *
  * Copyright (c) 2014-2016, BigSQL
- * Portions Copyright (c) 2012-2015, PostgreSQL Global Development Group & others
+ * Portions Copyright (c) 2012-2015, PostgreSQL Global Development Group & Others
  *
  * IDENTIFICATION
  *		  contrib/cstar_fdw/deparse.c
