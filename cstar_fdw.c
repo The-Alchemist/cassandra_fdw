@@ -43,6 +43,12 @@
 #    define CSTAR_FDW_WRITE_API
 #endif  /* PG_VERSION_NUM >= 90300 */
 
+#if PG_VERSION_NUM >= 90500
+#define IMPORT_API
+#else
+#undef IMPORT_API
+#endif  /* PG_VERSION_NUM >= 90500 */
+
 PG_MODULE_MAGIC;
 
 /* Default CPU cost to start up a foreign query. */
@@ -223,6 +229,9 @@ static void cassBeginForeignScan(ForeignScanState *node, int eflags);
 static TupleTableSlot *cassIterateForeignScan(ForeignScanState *node);
 static void cassReScanForeignScan(ForeignScanState *node);
 static void cassEndForeignScan(ForeignScanState *node);
+#ifdef IMPORT_API
+static List *cassImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid);
+#endif  /* IMPORT_API */
 
 #ifdef CSTAR_FDW_WRITE_API
 static void
@@ -275,6 +284,9 @@ static void create_cursor(ForeignScanState *node);
 static void close_cursor(CassFdwScanState *fsstate);
 static void fetch_more_data(ForeignScanState *node);
 static void pgcass_transferValue(StringInfo buf, const CassValue* value);
+#ifdef IMPORT_API
+static void pgcass_transformDataType(StringInfo buf, CassValueType type);
+#endif  /* IMPORT_API */
 static HeapTuple make_tuple_from_result_row(const CassRow* row,
 										   int ncolumn,
 										   Relation rel,
@@ -318,6 +330,9 @@ cstar_fdw_handler(PG_FUNCTION_ARGS)
 	fdwroutine->ReScanForeignScan = cassReScanForeignScan;
 	fdwroutine->EndForeignScan = cassEndForeignScan;
 	fdwroutine->AnalyzeForeignTable = NULL;
+#ifdef IMPORT_API
+        fdwroutine->ImportForeignSchema = cassImportForeignSchema;
+#endif  /* IMPORT_API */
 
 #ifdef CSTAR_FDW_WRITE_API
 	fdwroutine->AddForeignUpdateTargets = cassAddForeignUpdateTargets;
@@ -1691,6 +1706,20 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 	CassValueType type = cass_value_type(value);
 	switch (type)
 	{
+	case CASS_VALUE_TYPE_TINY_INT:
+	{
+		cass_int8_t i;
+		cass_value_get_int8(value, &i);
+		appendStringInfo(buf, "%d", i);
+		break;
+	}
+	case CASS_VALUE_TYPE_SMALL_INT:
+	{
+		cass_int16_t i;
+		cass_value_get_int16(value, &i);
+		appendStringInfo(buf, "%d", i);
+		break;
+	}
 	case CASS_VALUE_TYPE_INT:
 	{
 		cass_int32_t i;
@@ -1747,6 +1776,16 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 		buf->data[buf->len] = '\0';
 		break;
 	}
+	case CASS_VALUE_TYPE_INET:
+	{
+		CassInet i;
+
+		cass_value_get_inet(value, &i);
+		cass_inet_string(i, buf->data + buf->len);
+		buf->len += CASS_INET_STRING_LENGTH;
+		buf->data[buf->len] = '\0';
+		break;
+	}
 	case CASS_VALUE_TYPE_LIST:
 	case CASS_VALUE_TYPE_MAP:
 	default:
@@ -1754,6 +1793,79 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 		break;
 	}
 }
+
+#ifdef IMPORT_API
+static void
+pgcass_transformDataType(StringInfo buf, CassValueType type)
+{
+	switch (type)
+	{
+	case CASS_VALUE_TYPE_TINY_INT:
+	case CASS_VALUE_TYPE_SMALL_INT:
+	{
+		appendStringInfoString(buf, "smallint");
+		break;
+	}
+	case CASS_VALUE_TYPE_INT:
+	{
+		appendStringInfoString(buf, "integer");
+		break;
+	}
+	case CASS_VALUE_TYPE_BIGINT:
+	{
+		appendStringInfoString(buf, "bigint");
+		break;
+	}
+	case CASS_VALUE_TYPE_BOOLEAN:
+	{
+		appendStringInfoString(buf, "boolean");
+		break;
+	}
+	case CASS_VALUE_TYPE_DOUBLE:
+	{
+		appendStringInfoString(buf, "double precision");
+		break;
+	}
+	case CASS_VALUE_TYPE_FLOAT:
+	{
+		appendStringInfoString(buf, "float");
+		break;
+	}
+	case CASS_VALUE_TYPE_DECIMAL:
+	{
+		appendStringInfoString(buf, "numeric");
+		break;
+	}
+	case CASS_VALUE_TYPE_TEXT:
+	case CASS_VALUE_TYPE_ASCII:
+	case CASS_VALUE_TYPE_VARCHAR:
+	{
+		appendStringInfoString(buf, "text");
+		break;
+	}
+	case CASS_VALUE_TYPE_TIMESTAMP:
+	{
+		appendStringInfoString(buf, "timestamp(0) with time zone");
+		break;
+	}
+	case CASS_VALUE_TYPE_INET:
+	{
+		appendStringInfoString(buf, "inet");
+		break;
+	}
+	case CASS_VALUE_TYPE_UUID:
+	{
+		appendStringInfoString(buf, "uuid");
+		break;
+	}
+	case CASS_VALUE_TYPE_LIST:
+	case CASS_VALUE_TYPE_MAP:
+	default:
+		appendStringInfoString(buf, "<unhandled type>");
+		break;
+	}
+}
+#endif  /* IMPORT_API */
 
 /*
  * Examine each qual clause in input_conds, and classify them into two groups,
@@ -1959,3 +2071,84 @@ cassExecPKPredWrite(EState *estate,
 }
 
 #endif /* CSTAR_FDW_WRITE_API */
+
+#ifdef IMPORT_API
+/*
+ * cassImportForeignSchema
+ *		Generates CREATE FOREIGN TABLE statements for each of the tables
+ *		in the source schema and returns the list of these statements
+ *		to the caller.
+ */
+static List *
+cassImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
+{
+	ForeignServer *server;
+	const char *tabname, *colname, *schemaname;
+	size_t sch_length, tab_length, col_length;
+	UserMapping *user;
+	List *result = NIL;
+	CassSession        *session;
+	const CassSchemaMeta* schema_meta;
+	const CassKeyspaceMeta* keyspace_meta;
+	StringInfoData buf;
+	CassIterator *colfam_iter;
+
+	/* get the foreign server, the user mapping and the FDW */
+	server = GetForeignServer(serverOid);
+	user = GetUserMapping(GetUserId(), server->serverid);
+
+	/*
+	*          * Get connection to the foreign server.  Connection manager will
+	*          * establish new connection if necessary.
+	*/
+	session = pgcass_GetConnection(server, user, false);
+
+	initStringInfo(&buf);
+
+	schema_meta = cass_session_get_schema_meta(session);
+
+	keyspace_meta = cass_schema_meta_keyspace_by_name(schema_meta, stmt->remote_schema);
+	if (!keyspace_meta)
+	{
+		ereport(WARNING,
+		(errcode(ERRCODE_WARNING),
+		errmsg("remote schema \"%s\" does not exist", stmt->remote_schema),
+		errhint("Enclose the schema name in double quotes to prevent case folding.")));
+		return NIL;
+	}
+	cass_keyspace_meta_name(keyspace_meta, &schemaname, &sch_length);
+	colfam_iter = cass_iterator_tables_from_keyspace_meta(keyspace_meta);
+
+	/* Loop through the tables in the schema */
+	while (cass_iterator_next(colfam_iter))
+	{
+		const CassTableMeta *table_meta = cass_iterator_get_table_meta(colfam_iter);
+		size_t idx = 0;
+
+		resetStringInfo(&buf);
+		cass_table_meta_name(table_meta, &tabname, &tab_length);
+
+		appendStringInfo(&buf, "CREATE FOREIGN TABLE \"%.*s\" (", (int)tab_length, tabname);
+
+		/* Loop through the columns in the table */
+		for (; idx < cass_table_meta_column_count(table_meta); idx++)
+		{
+			const CassColumnMeta *column_meta = cass_table_meta_column(table_meta, idx);
+			const CassDataType *datatype_info = cass_column_meta_data_type(column_meta);
+			if (idx)
+				appendStringInfo(&buf, ", ");
+
+			cass_column_meta_name(column_meta, &colname, &col_length);
+			appendStringInfo(&buf, "\"%.*s\" ", (int)col_length, colname);
+			pgcass_transformDataType(&buf, cass_data_type_type(datatype_info));
+		}
+		appendStringInfo(&buf, ") SERVER \"%s\" OPTIONS (schema_name '%s', table_name '%.*s')",
+		server->servername, stmt->remote_schema, (int)tab_length, tabname);
+		result = lappend(result, pstrdup(buf.data));
+
+		elog(DEBUG1, "Query: %.*s\n", (int)buf.len, buf.data);
+	}
+	cass_schema_meta_free(schema_meta);
+	return result;
+}
+#endif  /* IMPORT_API */
