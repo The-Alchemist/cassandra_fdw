@@ -1420,6 +1420,7 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 		const char* message;
 		size_t message_length;
 		cass_future_error_message(future, &message, &message_length);
+		cass_future_free(future);
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -2055,6 +2056,7 @@ cassExecPKPredWrite(EState *estate,
 		const char* message;
 		size_t message_length;
 		cass_future_error_message(future, &message, &message_length);
+		cass_future_free(future);
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
