@@ -287,6 +287,7 @@ static void cassClassifyConditions(PlannerInfo *root,
 				   List *input_conds,
 				   List **remote_conds,
 				   List **local_conds);
+static void releaseCassResources(EState *estate, ResultRelInfo *resultRelInfo);
 #ifdef CSTAR_FDW_WRITE_API
 static void
 bind_cass_statement_param(Oid type, Datum value,
@@ -1347,6 +1348,28 @@ static void cassBeginForeignModify(ModifyTableState *mtstate,
 	resultRelInfo->ri_FdwState = fmstate;
 }
 
+static
+void releaseCassResources(EState *estate, ResultRelInfo *resultRelInfo)
+{
+	CassFdwModifyState *fmstate = (CassFdwModifyState *)
+		resultRelInfo->ri_FdwState;
+
+	/* if fmstate is NULL, we are in EXPLAIN; nothing to do */
+	if (fmstate == NULL)
+		return;
+
+	elog(DEBUG2, CSTAR_FDW_NAME ": release resources");
+
+	/* Close the statement if open */
+	if (fmstate->statement && fmstate->sql_sent)
+		cass_statement_free(fmstate->statement);
+
+	/* Release remote connection */
+	pgcass_ReleaseConnection(fmstate->cass_conn);
+	fmstate->cass_conn = NULL;
+}
+
+
 /*
  * cassExecForeignInsert
  *		Insert one row into a FOREIGN TABLE
@@ -1406,6 +1429,7 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 		size_t message_length;
 		cass_future_error_message(future, &message, &message_length);
 		cass_future_free(future);
+		releaseCassResources(estate, resultRelInfo);
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
@@ -1453,24 +1477,10 @@ static TupleTableSlot *cassExecForeignDelete(EState *estate,
  */
 static void cassEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo)
 {
-	CassFdwModifyState *fmstate = (CassFdwModifyState *)
-		resultRelInfo->ri_FdwState;
-
 	elog(DEBUG1, CSTAR_FDW_NAME ": end foreign modify for relation ID %d",
 	     RelationGetRelid(resultRelInfo->ri_RelationDesc));
 
-	/* if fmstate is NULL, we are in EXPLAIN; nothing to do */
-	if (fmstate == NULL)
-		return;
-
-	/* Close the statement if open */
-	if (fmstate->statement && fmstate->sql_sent)
-		cass_statement_free(fmstate->statement);
-
-	/* Release remote connection */
-	pgcass_ReleaseConnection(fmstate->cass_conn);
-	fmstate->cass_conn = NULL;
-
+	releaseCassResources(estate, resultRelInfo);
 	/* MemoryContexts will be deleted automatically. */
 }
 
@@ -1944,6 +1954,7 @@ cassExecPKPredWrite(EState *estate,
 		size_t message_length;
 		cass_future_error_message(future, &message, &message_length);
 		cass_future_free(future);
+		releaseCassResources(estate, resultRelInfo);
 
 		ereport(ERROR,
 		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
