@@ -1408,7 +1408,7 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 		cass_future_free(future);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
 		         errmsg("Failed to execute the INSERT into Cassandra: %.*s",
 		                (int)message_length, message)));
 	}
