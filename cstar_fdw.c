@@ -287,8 +287,8 @@ static void cassClassifyConditions(PlannerInfo *root,
 				   List *input_conds,
 				   List **remote_conds,
 				   List **local_conds);
-static void releaseCassResources(EState *estate, ResultRelInfo *resultRelInfo);
 #ifdef CSTAR_FDW_WRITE_API
+static void releaseCassResources(EState *estate, ResultRelInfo *resultRelInfo);
 static void
 bind_cass_statement_param(Oid type, Datum value,
 						  CassStatement * statement, int pindex);
