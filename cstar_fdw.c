@@ -1865,7 +1865,7 @@ cassExecPKPredWrite(EState *estate,
 					TupleTableSlot *planSlot,
 					const char *cqlOpName)
 {
-		CassFdwModifyState *fmstate = (CassFdwModifyState *) resultRelInfo->ri_FdwState;
+	CassFdwModifyState *fmstate = (CassFdwModifyState *) resultRelInfo->ri_FdwState;
 	int                 pindex  = 0;
 	MemoryContext       oldcontext;
 	CassFuture*         future  = NULL;
