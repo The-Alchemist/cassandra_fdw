@@ -1490,7 +1490,7 @@ static int	cassIsForeignRelUpdatable(Relation rel)
 {
 	/*
 	 * Cassandra does not provide "read_only" tables and we do not need to
-	 * support them presently.
+	 * emulate them on the local side presently.
 	 */
 	return (1 << CMD_UPDATE) | (1 << CMD_INSERT) | (1 << CMD_DELETE);
 }
