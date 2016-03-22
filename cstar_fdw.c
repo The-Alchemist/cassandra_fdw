@@ -1363,6 +1363,10 @@ static void cassBeginForeignModify(ModifyTableState *mtstate,
 	resultRelInfo->ri_FdwState = fmstate;
 }
 
+/*
+ * releaseCassResources
+ *		Release in-use Cassandra statement and connection resources if any.
+ */
 static
 void releaseCassResources(EState *estate, ResultRelInfo *resultRelInfo)
 {
@@ -1383,7 +1387,6 @@ void releaseCassResources(EState *estate, ResultRelInfo *resultRelInfo)
 	pgcass_ReleaseConnection(fmstate->cass_conn);
 	fmstate->cass_conn = NULL;
 }
-
 
 /*
  * cassExecForeignInsert
