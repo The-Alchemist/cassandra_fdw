@@ -1989,7 +1989,6 @@ cassExecPKPredWrite(EState *estate,
 	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign %s on relation ID %d",
 		 cqlOpName, RelationGetRelid(resultRelInfo->ri_RelationDesc));
 
-
 	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
 
 	if (!fmstate->sql_sent)
