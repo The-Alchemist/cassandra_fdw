@@ -85,4 +85,19 @@ Here is an example:
 	-- Query the foreign table.
 	SELECT * FROM test limit 5;
 ```
+###
 
+Supports IMPORT FOREIGN SCHEMA feature
+
+Here are some examples:
+
+```
+	-- IMPORT cassandra test_schema to the local schema.
+	IMPORT FOREIGN SCHEMA test_schema FROM SERVER cassandra2_test_server INTO test_schema;
+
+	-- IMPORT only test_tab1, test_tab2 from cassandra test_schema to the local schema.
+	IMPORT FOREIGN SCHEMA test_schema LIMIT TO (test_tab1, test_tab2) FROM SERVER  cassandra2_test_server INTO test_schema;
+
+	-- IMPORT all other objects from the cassandra test_schema schema except test_tab1 and test_tab2.
+	IMPORT FOREIGN SCHEMA test_schema EXCEPT (test_tab1, test_tab2) FROM SERVER  cassandra2_test_server INTO test_schema;
+```
