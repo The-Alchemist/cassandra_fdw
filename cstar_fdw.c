@@ -296,12 +296,6 @@ static HeapTuple make_tuple_from_result_row(const CassRow* row,
 										   AttInMetadata *attinmeta,
 										   List *retrieved_attrs,
 										   MemoryContext temp_context);
-
-static void cassClassifyConditions(PlannerInfo *root,
-				   RelOptInfo *baserel,
-				   List *input_conds,
-				   List **remote_conds,
-				   List **local_conds);
 #ifdef CSTAR_FDW_WRITE_API
 static void releaseCassResources(EState *estate, ResultRelInfo *resultRelInfo);
 static void
@@ -1914,32 +1908,6 @@ pgcass_transformDataType(StringInfo buf, CassValueType type)
 		         errmsg("Data type %s not supported.", invalid_datatype)));
 }
 #endif  /* CSTAR_FDW_IMPORT_API */
-
-/*
- * Examine each qual clause in input_conds, and classify them into two groups,
- * which are returned as two lists:
- *	- remote_conds contains expressions that can be evaluated remotely
- *	- local_conds contains expressions that can't be evaluated remotely
- */
-static void
-cassClassifyConditions(PlannerInfo *root,
-					   RelOptInfo *baserel,
-					   List *input_conds,
-					   List **remote_conds,
-					   List **local_conds)
-{
-	ListCell   *lc;
-
-	*remote_conds = NIL;
-	*local_conds = NIL;
-
-	foreach(lc, input_conds)
-	{
-		RestrictInfo *ri = (RestrictInfo *) lfirst(lc);
-
-		*local_conds = lappend(*local_conds, ri);
-	}
-}
 
 #ifdef CSTAR_FDW_WRITE_API
 /*

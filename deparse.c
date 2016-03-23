@@ -344,3 +344,29 @@ cassDeparseDeleteSql(StringInfo buf, PlannerInfo *root,
 
 	elog(DEBUG1, CSTAR_FDW_NAME ": built the statement: %s", buf->data);
 }
+
+/*
+ * Examine each qual clause in input_conds, and classify them into two groups,
+ * which are returned as two lists:
+ *	- remote_conds contains expressions that can be evaluated remotely
+ *	- local_conds contains expressions that can't be evaluated remotely
+ */
+void
+cassClassifyConditions(PlannerInfo *root,
+					   RelOptInfo *baserel,
+					   List *input_conds,
+					   List **remote_conds,
+					   List **local_conds)
+{
+	ListCell   *lc;
+
+	*remote_conds = NIL;
+	*local_conds = NIL;
+
+	foreach(lc, input_conds)
+	{
+		RestrictInfo *ri = (RestrictInfo *) lfirst(lc);
+
+		*local_conds = lappend(*local_conds, ri);
+	}
+}

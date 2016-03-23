@@ -43,4 +43,11 @@ cassDeparseDeleteSql(StringInfo buf, PlannerInfo *root,
 					 Index rtindex, Relation rel,
 					 List **retrieved_attrs,
 					 const char *primaryKey);
+
+extern void
+cassClassifyConditions(PlannerInfo *root,
+					   RelOptInfo *baserel,
+					   List *input_conds,
+					   List **remote_conds,
+					   List **local_conds);
 #endif /* CASSANDRA_FDW_H_ */
