@@ -44,6 +44,11 @@ cassDeparseDeleteSql(StringInfo buf, PlannerInfo *root,
 					 List **retrieved_attrs,
 					 const char *primaryKey);
 
+extern bool
+is_cass_foreign_expr(PlannerInfo *root,
+					 RelOptInfo *baserel,
+					 Expr *expr);
+
 extern void
 cassClassifyConditions(PlannerInfo *root,
 					   RelOptInfo *baserel,

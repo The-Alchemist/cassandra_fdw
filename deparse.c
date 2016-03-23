@@ -42,6 +42,46 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
+
+/*
+ * Global context for foreign_expr_walker's search of an expression tree.
+ */
+typedef struct foreign_glob_cxt
+{
+	PlannerInfo *root;			/* global planner state */
+	RelOptInfo *foreignrel;		/* the foreign relation we are planning for */
+} foreign_glob_cxt;
+
+/*
+ * Local (per-tree-level) context for foreign_expr_walker's search.
+ * This is concerned with identifying collations used in the expression.
+ */
+typedef enum
+{
+	FDW_COLLATE_NONE,			/* expression is of a noncollatable type, or
+				 * it has default collation that is not
+				 * traceable to a foreign Var */
+	FDW_COLLATE_SAFE,			/* collation derives from a foreign Var */
+	FDW_COLLATE_UNSAFE			/* collation is non-default and derives from
+				 * something other than a foreign Var */
+} FDWCollateState;
+
+typedef struct foreign_loc_cxt
+{
+	Oid			collation;		/* OID of current collation, if any */
+	FDWCollateState state;		/* state of current collation choice */
+} foreign_loc_cxt;
+
+/*
+ * Functions to determine whether an expression can be evaluated safely on
+ * remote server.
+ */
+static bool
+foreign_expr_walker(Node *node,
+					foreign_glob_cxt *glob_cxt,
+					foreign_loc_cxt *outer_cxt);
+
+static bool is_builtin(Oid procid);
 /*
  * Functions to construct string representation of a node tree.
  */
@@ -367,6 +407,198 @@ cassClassifyConditions(PlannerInfo *root,
 	{
 		RestrictInfo *ri = (RestrictInfo *) lfirst(lc);
 
-		*local_conds = lappend(*local_conds, ri);
+		if (is_cass_foreign_expr(root, baserel, ri->clause))
+			*remote_conds = lappend(*remote_conds, ri);
+		else
+			*local_conds = lappend(*local_conds, ri);
 	}
+}
+
+/*
+ * Returns true if given expr is safe to evaluate on the foreign server.
+ */
+bool
+is_cass_foreign_expr(PlannerInfo *root,
+					 RelOptInfo *baserel,
+					 Expr *expr)
+{
+	foreign_glob_cxt glob_cxt;
+	foreign_loc_cxt loc_cxt;
+
+	/*
+	 * Check that the expression consists of nodes that are safe to execute
+	 * remotely.
+	 */
+	glob_cxt.root = root;
+	glob_cxt.foreignrel = baserel;
+	loc_cxt.collation = InvalidOid;
+	loc_cxt.state = FDW_COLLATE_NONE;
+	if (!foreign_expr_walker((Node *) expr, &glob_cxt, &loc_cxt))
+		return false;
+
+	/* Expressions examined here should be boolean, ie noncollatable */
+	Assert(loc_cxt.collation == InvalidOid);
+	Assert(loc_cxt.state == FDW_COLLATE_NONE);
+
+	/*
+	 * An expression which includes any mutable functions can't be sent over
+	 * because its result is not stable.  For example, sending now() remote
+	 * side could cause confusion from clock offsets.  Future versions might
+	 * be able to make this choice with more granularity.  (We check this last
+	 * because it requires a lot of expensive catalog lookups.)
+	 */
+	if (contain_mutable_functions((Node *) expr))
+		return false;
+
+	/* OK to evaluate on the remote server */
+	return true;
+}
+
+/*
+ * Return true if given object is one of PostgreSQL's built-in objects.
+ *
+ * We use FirstBootstrapObjectId as the cutoff, so that we only consider
+ * objects with hand-assigned OIDs to be "built in", not for instance any
+ * function or type defined in the information_schema.
+ *
+ * Our constraints for dealing with types are tighter than they are for
+ * functions or operators: we want to accept only types that are in pg_catalog,
+ * else format_type might incorrectly fail to schema-qualify their names.
+ * (This could be fixed with some changes to format_type, but for now there's
+ * no need.)  Thus we must exclude information_schema types.
+ *
+ * There is a note in postgres_fdw that a problem with this in that older
+ * versions of remote PostgreSQL servers might not have the some of the newer
+ * built-in objects on the current system.  This does not quite apply to us
+ * for Cassandra in the same manner but there are a few ongoing considerations
+ * (not for the function itself but) for the calling code making decisions on
+ * top of this function:
+ *
+ * - If a Cassandra system is older than the version we add decisions atop
+ *   this code for, we will not be accurate.  However, we intend to only
+ *   support a specific version (and up) of Cassandra with an FDW release so
+ *   this is not a major concern.
+ *
+ * - The flip side of the last point: if a Cassandra system is newer, we may
+ *   not be pushing down everything we can.  There is no direct functional
+ *   issue here but our initial narrow coverage of pushdown will probably
+ *   continue to be a bigger issue from performance and scalability
+ *   perspectives for some time while we work on adding more pushdown.
+ *
+ * - As the PostgreSQL built-in objects increase, we could consider adding
+ *   more pushdown for any corresponding Cassandra objects that exist and that
+ *   the pushdown makes sense for.
+ */
+static bool
+is_builtin(Oid oid)
+{
+	return (oid < FirstBootstrapObjectId);
+}
+
+/*
+ * Check if expression is safe to execute remotely, and return true if so.
+ *
+ * In addition, *outer_cxt is updated with collation information.
+ *
+ * We must check that the expression contains only node types we can deparse.
+ */
+static bool
+foreign_expr_walker(Node *node,
+                    foreign_glob_cxt *glob_cxt,
+                    foreign_loc_cxt *outer_cxt)
+{
+	bool		check_type = true;
+	foreign_loc_cxt inner_cxt;
+	Oid			collation;
+	FDWCollateState state;
+
+	/* Need do nothing for empty subexpressions */
+	if (node == NULL)
+		return true;
+
+	/* Set up inner_cxt for possible recursion to child nodes */
+	inner_cxt.collation = InvalidOid;
+	inner_cxt.state = FDW_COLLATE_NONE;
+
+	switch (nodeTag(node))
+	{
+		case T_BoolExpr:
+			{
+				BoolExpr   *b = (BoolExpr *) node;
+
+				/*
+				 * Recurse to input subexpressions.
+				 */
+				if (!foreign_expr_walker((Node *) b->args,
+										 glob_cxt, &inner_cxt))
+					return false;
+
+				/* Output is always boolean and so noncollatable. */
+				collation = InvalidOid;
+				state = FDW_COLLATE_NONE;
+			}
+			break;
+		default:
+
+			/*
+			 * If it's anything else, assume it's unsafe.  This list can be
+			 * expanded later, but don't forget to add deparse support below.
+			 */
+			return false;
+	}
+
+	/*
+	 * If result type of given expression is not built-in, it can't be sent to
+	 * remote because it might have incompatible semantics on remote side.
+	 */
+	if (check_type && !is_builtin(exprType(node)))
+		return false;
+
+	/*
+	 * Now, merge my collation information into my parent's state.
+	 */
+	if (state > outer_cxt->state)
+	{
+		/* Override previous parent state */
+		outer_cxt->collation = collation;
+		outer_cxt->state = state;
+	}
+	else if (state == outer_cxt->state)
+	{
+		/* Merge, or detect error if there's a collation conflict */
+		switch (state)
+		{
+		case FDW_COLLATE_NONE:
+			/* Nothing + nothing is still nothing */
+			break;
+		case FDW_COLLATE_SAFE:
+			if (collation != outer_cxt->collation)
+			{
+				/*
+				 * Non-default collation always beats default.
+				 */
+				if (outer_cxt->collation == DEFAULT_COLLATION_OID)
+				{
+					/* Override previous parent state */
+					outer_cxt->collation = collation;
+				}
+				else if (collation != DEFAULT_COLLATION_OID)
+				{
+					/*
+					 * Conflict; show state as indeterminate.  We don't
+					 * want to "return false" right away, since parent
+					 * node might not care about collation.
+					 */
+					outer_cxt->state = FDW_COLLATE_UNSAFE;
+				}
+			}
+			break;
+		case FDW_COLLATE_UNSAFE:
+			/* We're still conflicted ... */
+			break;
+		}
+	}
+
+	/* It looks OK */
+	return true;
 }
