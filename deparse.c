@@ -467,17 +467,17 @@ is_cass_foreign_expr(PlannerInfo *root,
  * (This could be fixed with some changes to format_type, but for now there's
  * no need.)  Thus we must exclude information_schema types.
  *
- * There is a note in postgres_fdw that a problem with this in that older
- * versions of remote PostgreSQL servers might not have the some of the newer
+ * There is a note in postgres_fdw that a problem with this is that older
+ * versions of remote PostgreSQL servers might not have some of the newer
  * built-in objects on the current system.  This does not quite apply to us
  * for Cassandra in the same manner but there are a few ongoing considerations
- * (not for the function itself but) for the calling code making decisions on
- * top of this function:
+ * for the calling code making decisions on top of this function:
  *
  * - If a Cassandra system is older than the version we add decisions atop
- *   this code for, we will not be accurate.  However, we intend to only
- *   support a specific version (and up) of Cassandra with an FDW release so
- *   this is not a major concern.
+ *   this code for, we will not be accurate and can possibly push down clauses
+ *   we should not.  However, we intend to only support a specific version
+ *   (and up) of Cassandra with an FDW release so this is likely not a major
+ *   concern.
  *
  * - The flip side of the last point: if a Cassandra system is newer, we may
  *   not be pushing down everything we can.  There is no direct functional
