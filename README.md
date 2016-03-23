@@ -84,25 +84,20 @@ Here is an example:
 
 	-- Query the foreign table.
 	SELECT * FROM test limit 5;
-
-        -- import Cassandra schema as a foreign schema. Requires TEST_SCHEMA to exist in
-        -- Cassandra as well as in PostgreSql.
-        IMPORT FOREIGN SCHEMA TEST_SCHEMA FROM SERVER  cassandra2_test_server INTO TEST_SCHEMA;
 ```
-IMPORT FOREIGN SCHEMA
+###
 
-        The Objects imported would follow the same case sensitivity as that of Cassandra.
-        This applies to the other identifiers as well such as column names etc. The case
-        sensitivity also applies for the Object names referenced in the LIMIT TO and EXCEPT
-        clauses.
+Supports IMPORT FOREIGN SCHEMA feature
 
 Here are some examples:
 
-        -- The Test_Tab1 was created as case sensitive in Cassandra and test_tab2 was created
-        -- as case insensitive. Only the tables "Test_Tab1" and test_tab2 are imported from
-        -- the Cassandra TEST_SCHEMA keyspace. If there are existing objects in the PostgreSql
-        -- foreign schema TEST_SCHEMA they would remain.
-        IMPORT FOREIGN SCHEMA TEST_SCHEMA LIMIT TO ("Test_Tab1", test_tab2) FROM SERVER  cassandra2_test_server INTO TEST_SCHEMA;
+```
+	-- IMPORT cassandra test_schema to the local schema.
+	IMPORT FOREIGN SCHEMA test_schema FROM SERVER cassandra2_test_server INTO test_schema;
 
-        -- Import all other objects from the Cassandra TEST_SCHEMA schema except "Test_Tab1" and test_tab2.
-        IMPORT FOREIGN SCHEMA TEST_SCHEMA EXCEPT ("Test_Tab1", test_tab2) FROM SERVER  cassandra2_test_server INTO TEST_SCHEMA;
+	-- IMPORT only test_tab1, test_tab2 from cassandra test_schema to the local schema.
+	IMPORT FOREIGN SCHEMA test_schema LIMIT TO (test_tab1, test_tab2) FROM SERVER  cassandra2_test_server INTO test_schema;
+
+	-- IMPORT all other objects from the cassandra test_schema schema except test_tab1 and test_tab2.
+	IMPORT FOREIGN SCHEMA test_schema EXCEPT (test_tab1, test_tab2) FROM SERVER  cassandra2_test_server INTO test_schema;
+```
