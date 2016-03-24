@@ -101,3 +101,12 @@ Here are some examples:
 	-- IMPORT all other objects from the cassandra test_schema schema except test_tab1 and test_tab2.
 	IMPORT FOREIGN SCHEMA test_schema EXCEPT (test_tab1, test_tab2) FROM SERVER  cassandra2_test_server INTO test_schema;
 ```
+
+Presently, IMPORTing a FOREIGN SCHEMA does not automatically bring in
+PRIMARY KEY information.  You can manually add the OPTION "primary_key"
+to an IMPORTed TABLE using the ALTER FOREIGN TABLE command as shown
+below:
+
+```
+ALTER FOREIGN TABLE test OPTIONS (ADD primary_key 'id');
+```
