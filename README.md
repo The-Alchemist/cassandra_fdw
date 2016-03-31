@@ -87,7 +87,7 @@ Here is an example:
 	SELECT * FROM test limit 5;
 ```
 
-For the full list of supported parameters, see [Reference Documentation](doc.pdf).
+For the full list of supported parameters, see [Reference Documentation PDF](doc.pdf).
 
 ###
 
@@ -117,4 +117,4 @@ ALTER FOREIGN TABLE test OPTIONS (ADD primary_key 'id');
 
 ## Documentation
 
-[Reference](doc.pdf)
+[Reference PDF](doc.pdf)
