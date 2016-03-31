@@ -1,0 +1,22 @@
+* FDW DDL
+
+** SERVER OPTIONs
+
+The key-value pairs specified in the OPTIONS clause of the CREATE SERVER
+command, e.g the OPTION =host= is specified with a value '127.0.0.1' in
+the example below:
+
+#+BEGIN_SRC sql
+CREATE SERVER cass_serv FOREIGN DATA WRAPPER cstar_fdw
+	OPTIONS (host '127.0.0.1');
+#+END_SRC
+
+The full list of supported OPTIONs follows.
+
+*** Parameter
+
+| Key      | Required | Description                                                          | Example Values                                           | Default Value            |
+|----------+----------+----------------------------------------------------------------------+----------------------------------------------------------+--------------------------|
+| host     | Y        | The address(es) or hostname(s) of the Cassandra server(s)            | "127.0.0.1", "127.0.0.1,127.0.0.2", "server1.domain.com" | N/A                      |
+| port     | N        | The port number of the Cassandra server(s)                           | 9042                                                     | 9042                     |
+| protocol | N        | The protocol version to use for connecting with the Cassandra server | "4"                                                      | "4" (for cpp-driver 2.3) |
