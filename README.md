@@ -9,7 +9,7 @@ Cassandra: http://cassandra.apache.org/
 ## Prepare
 
 In addition to normal PostgreSQL FDW pre-reqs, the primary specific
-requirement for this FDW is the Cassandra2 C/C++ driver version 2.3
+requirement for this FDW is the Cassandra CPP driver version 2.3
 (https://github.com/datastax/cpp-driver) which we will set up as part of
 the following section.
 
