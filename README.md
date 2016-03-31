@@ -60,7 +60,7 @@ object:
 The following parameters can be set on a Cassandra foreign table object:
 
   * **`schema_name`**: the name of the Cassandra keyspace to query.  Defaults to "public".
-  * **`table_name`**: the name of the Cassandra table to query.  Defaults to the foreign table name used in the relevant CREATE command.
+  * **`table_name`**: the name of the Cassandra table to query.  Defaults to the FOREIGN TABLE name used in the relevant CREATE command.
 
 Here is an example:
 
@@ -70,10 +70,11 @@ Here is an example:
 
 	-- create server object
 	CREATE SERVER cass_serv FOREIGN DATA WRAPPER cstar_fdw
-		OPTIONS(host '127.0.0.1,127.0.0.2', port '9042');
+		OPTIONS (host '127.0.0.1');
 
 	-- Create a user mapping for the server.
-	CREATE USER MAPPING FOR public SERVER cass_serv OPTIONS(username 'test', password 'test');
+	CREATE USER MAPPING FOR public SERVER cass_serv
+		OPTIONS(username 'test', password 'test');
 
 	-- CREATE a FOREIGN TABLE on the server.
 	--
@@ -85,6 +86,8 @@ Here is an example:
 	-- Query the foreign table.
 	SELECT * FROM test limit 5;
 ```
+
+For the full list of supported parameters, see [Reference Documentation](doc.pdf).
 
 ###
 
@@ -111,3 +114,7 @@ below:
 ```
 ALTER FOREIGN TABLE test OPTIONS (ADD primary_key 'id');
 ```
+
+## Documentation
+
+[Reference](doc.pdf)
