@@ -3,17 +3,15 @@
 ** SERVER OPTIONs
 
 The key-value pairs specified in the OPTIONS clause of the CREATE SERVER
-command, e.g the OPTION =host= is specified with a value '127.0.0.1' in
+command; e.g. the OPTION =host= is specified with a value '127.0.0.1' in
 the example below:
 
-#+BEGIN_SRC sql
+#+BEGIN_SRC sql :exports code
 CREATE SERVER cass_serv FOREIGN DATA WRAPPER cstar_fdw
-	OPTIONS (host '127.0.0.1');
+    OPTIONS (host '127.0.0.1');
 #+END_SRC
 
-The full list of supported OPTIONs follows.
-
-*** Parameter
+The full list of the supported SERVER OPTIONs follows:
 
 | Key      | Required | Description                                                          | Example Values                                           | Default Value            |
 |----------+----------+----------------------------------------------------------------------+----------------------------------------------------------+--------------------------|
