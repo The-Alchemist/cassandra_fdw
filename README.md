@@ -9,7 +9,7 @@ Cassandra: http://cassandra.apache.org/
 ## Prepare
 
 In addition to normal PostgreSQL FDW pre-reqs, the primary specific
-requirement for this FDW is the Cassandra CPP driver version 2.3
+requirement for this FDW is the Cassandra CPP driver 2.3
 (https://github.com/datastax/cpp-driver) which we will set up as part of
 the following section.
 
@@ -51,11 +51,11 @@ USE_PGXS=1 make install
 
 ## Usage
 
-The following parameters can be set on a Cassandra foreign server
+The following parameter must be set on a Cassandra foreign server
 object:
 
-  * **`host`**: the address(es) or hostname(s) of the Cassandra server, Examples: "127.0.0.1" "127.0.0.1,127.0.0.2", "server1.domain.com".
-  * **`port`**: the port number of the Cassandra server(s). Defaults to 9042.
+  * **`host`**: the address(es) or hostname(s) of the Cassandra server(s).
+                Examples: "127.0.0.1", "127.0.0.1,127.0.0.2", "server1.domain.com".
 
 The following parameters can be set on a Cassandra foreign table object:
 
@@ -85,6 +85,7 @@ Here is an example:
 	-- Query the foreign table.
 	SELECT * FROM test limit 5;
 ```
+
 ###
 
 Supports IMPORT FOREIGN SCHEMA feature
