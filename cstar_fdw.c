@@ -320,7 +320,7 @@ Datum
 cstar_fdw_handler(PG_FUNCTION_ARGS)
 {
 	FdwRoutine *fdwroutine = makeNode(FdwRoutine);
-	
+
 	fdwroutine->GetForeignRelSize = cassGetForeignRelSize;
 	fdwroutine->GetForeignPaths = cassGetForeignPaths;
 	fdwroutine->GetForeignPlan = cassGetForeignPlan;
@@ -373,7 +373,7 @@ cstar_fdw_validator(PG_FUNCTION_ARGS)
 	/*
 	 * Check that only options supported by cstar_fdw,
 	 * and allowed for the current object type, are given.
-	*/ 
+	*/
 	foreach(cell, options_list)
 	{
 		DefElem    *def = (DefElem *) lfirst(cell);
@@ -1032,12 +1032,12 @@ cassAddForeignUpdateTargets(Query *parsetree,
 	const char *primary_key = NULL;
 	bool		has_PK       = false;
 	int         i;
-	
+
 	elog(DEBUG1, CSTAR_FDW_NAME
 	     ": add target column(s) for write on relation ID %d", relid);
 
 	cassGetPKOption(relid, &primary_key);
-  
+
 	if (primary_key == NULL)
 	{
 		ereport(ERROR,
@@ -1990,8 +1990,8 @@ static void bind_cass_statement_param(Oid type, Datum value,
 		default:
 		{
 			ereport(ERROR,
-			        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			         errmsg("Data type with OID %d not supported.", type)));
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("Data type with OID %d not supported.", type)));
 			break;
 		}
 	}
@@ -2057,17 +2057,17 @@ cassExecPKPredWrite(EState *estate,
 		cassGetPKOption(rid, &primary_key);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
-		         errmsg("The specified PRIMARY KEY '%s' contains a NULL value"
-		                "for the FOREIGN TABLE '%s.%s'.", primary_key,
-		                pstrdup(get_namespace_name(RelationGetNamespace(
-			                                           relation))),
-		                pstrdup(RelationGetRelationName(relation))),
-		         errdetail("For UPDATE or DELETE, a valid PRIMARY KEY must be "
-		                   "defined for the FOREIGN TABLE."),
-		         errhint("Set the FOREIGN TABLE OPTION '%s' to a "
-		                 "valid PRIMARY KEY column.",
-		                 OPT_PK)));
+				(errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+				 errmsg("The specified PRIMARY KEY '%s' contains a NULL value"
+						"for the FOREIGN TABLE '%s.%s'.", primary_key,
+						pstrdup(get_namespace_name(RelationGetNamespace(
+																 relation))),
+						pstrdup(RelationGetRelationName(relation))),
+			   errdetail("For UPDATE or DELETE, a valid PRIMARY KEY must be "
+						 "defined for the FOREIGN TABLE."),
+				 errhint("Set the FOREIGN TABLE OPTION '%s' to a "
+						 "valid PRIMARY KEY column.",
+						 OPT_PK)));
 	}
 
 	bind_cass_statement_param(fmstate->p_type_oids[pindex], value,
@@ -2090,9 +2090,9 @@ cassExecPKPredWrite(EState *estate,
 		releaseCassResources(estate, resultRelInfo);
 
 		ereport(ERROR,
-		        (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
-		         errmsg("Failed to execute the %s into Cassandra: %.*s",
-		                cqlOpName, (int)message_length, message)));
+				(errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+				 errmsg("Failed to execute the %s into Cassandra: %.*s",
+						cqlOpName, (int) message_length, message)));
 	}
 
 	cass_future_free(future);
@@ -2116,13 +2116,15 @@ static List *
 cassImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 {
 	ForeignServer *server;
-	const char *tabname, *colname;
-	size_t tab_length, col_length;
+	const char *tabname,
+			   *colname;
+	size_t		tab_length,
+				col_length;
 	UserMapping *user;
-	List *result = NIL;
+	List	   *result = NIL;
 	CassSession *session;
-	const CassSchemaMeta* schema_meta;
-	const CassKeyspaceMeta* keyspace_meta;
+	const CassSchemaMeta *schema_meta;
+	const CassKeyspaceMeta *keyspace_meta;
 	StringInfoData buf;
 	CassIterator *column_family_iter;
 
@@ -2130,10 +2132,10 @@ cassImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	server = GetForeignServer(serverOid);
 	user = GetUserMapping(GetUserId(), server->serverid);
 
-        /*
-         * Get connection to the foreign server.  Connection manager will
-         * establish new connection if necessary.
-         */
+	/*
+	 * Get connection to the foreign server.  Connection manager will
+	 * establish new connection if necessary.
+	 */
 	session = pgcass_GetConnection(server, user, false);
 
 	initStringInfo(&buf);
@@ -2144,9 +2146,9 @@ cassImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	if (!keyspace_meta)
 	{
 		ereport(WARNING,
-		(errcode(ERRCODE_WARNING),
-		errmsg("remote schema \"%s\" does not exist", stmt->remote_schema),
-		errhint("Enclose the schema name in double quotes to prevent case folding.")));
+				(errcode(ERRCODE_WARNING),
+		  errmsg("remote schema \"%s\" does not exist", stmt->remote_schema),
+				 errhint("Enclose the schema name in double quotes to prevent case folding.")));
 		return NIL;
 	}
 	column_family_iter = cass_iterator_tables_from_keyspace_meta(keyspace_meta);
@@ -2155,30 +2157,31 @@ cassImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	while (cass_iterator_next(column_family_iter))
 	{
 		const CassTableMeta *table_meta = cass_iterator_get_table_meta(column_family_iter);
-		size_t idx = 0;
+		size_t		idx = 0;
 
 		resetStringInfo(&buf);
 		cass_table_meta_name(table_meta, &tabname, &tab_length);
 
-		appendStringInfo(&buf, "CREATE FOREIGN TABLE \"%.*s\" (", (int)tab_length, tabname);
+		appendStringInfo(&buf, "CREATE FOREIGN TABLE \"%.*s\" (", (int) tab_length, tabname);
 
 		/* Loop through the columns in the table */
 		for (; idx < cass_table_meta_column_count(table_meta); idx++)
 		{
 			const CassColumnMeta *column_meta = cass_table_meta_column(table_meta, idx);
 			const CassDataType *datatype_info = cass_column_meta_data_type(column_meta);
+
 			if (idx)
 				appendStringInfo(&buf, ", ");
 
 			cass_column_meta_name(column_meta, &colname, &col_length);
-			appendStringInfo(&buf, "\"%.*s\" ", (int)col_length, colname);
+			appendStringInfo(&buf, "\"%.*s\" ", (int) col_length, colname);
 			pgcass_transformDataType(&buf, cass_data_type_type(datatype_info));
 		}
 		appendStringInfo(&buf, ") SERVER \"%s\" OPTIONS (schema_name '%s', table_name '%.*s')",
-		server->servername, stmt->remote_schema, (int)tab_length, tabname);
+		 server->servername, stmt->remote_schema, (int) tab_length, tabname);
 		result = lappend(result, pstrdup(buf.data));
 
-		elog(DEBUG1, CSTAR_FDW_NAME "DDL: %.*s\n", (int)buf.len, buf.data);
+		elog(DEBUG1, CSTAR_FDW_NAME "DDL: %.*s\n", (int) buf.len, buf.data);
 	}
 	cass_iterator_free(column_family_iter);
 	cass_schema_meta_free(schema_meta);
