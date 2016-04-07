@@ -1787,11 +1787,12 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 	case CASS_VALUE_TYPE_TIMESTAMP:
 	{
 		cass_int64_t timestamp;
+
 		cass_value_get_int64(value, &timestamp);
-		/* cassandra stores in milli seconds so convert to seconds */
-		timestamp /=  MSECS_PER_SEC;
-	        appendStringInfo(buf, "%s %s",
-				 asctime(gmtime(((time_t *)&timestamp))), LITERAL_UTC);
+		/* cassandra stores in milliseconds so convert to seconds */
+		timestamp /= MSECS_PER_SEC;
+		appendStringInfo(buf, "%s %s",
+					  asctime(gmtime(((time_t *) &timestamp))), LITERAL_UTC);
 		break;
 	}
 	case CASS_VALUE_TYPE_UUID:
