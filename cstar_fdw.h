@@ -21,6 +21,10 @@ extern void pgcass_ReleaseConnection(CassSession *session);
 extern void pgcass_report_error(int elevel, CassFuture* result_future,
 				bool clear, const char *sql);
 
+/* in cstar_fdw.c */
+extern int	set_transmission_modes(void);
+extern void reset_transmission_modes(int nestlevel);
+
 /* in deparse.c */
 extern void
 cassDeparseSelectSql(StringInfo buf,
@@ -55,4 +59,14 @@ cassClassifyConditions(PlannerInfo *root,
 					   List *input_conds,
 					   List **remote_conds,
 					   List **local_conds);
+
+extern void
+appendWhereClause(StringInfo buf,
+				  PlannerInfo *root,
+				  RelOptInfo *baserel,
+				  List *exprs,
+				  bool is_first,
+				  List **params);
+
+extern void deparseStringLiteral(StringInfo buf, const char *val);
 #endif /* CASSANDRA_FDW_H_ */

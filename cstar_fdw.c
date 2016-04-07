@@ -619,7 +619,7 @@ cassGetForeignRelSize(PlannerInfo *root,
 	CassFdwPlanState *fpinfo;
 	ListCell   *lc;
 
-	elog(DEBUG1, CSTAR_FDW_NAME
+	elog(DEBUG3, CSTAR_FDW_NAME
 	     ": get foreign rel size for relation ID %d", foreigntableid);
 
 	fpinfo = (CassFdwPlanState *) palloc0(sizeof(CassFdwPlanState));
@@ -700,7 +700,7 @@ cassGetForeignPaths(PlannerInfo *root,
 	CassFdwPlanState *fpinfo = (CassFdwPlanState *) baserel->fdw_private;
 	ForeignPath *path;
 
-	elog(DEBUG1, CSTAR_FDW_NAME
+	elog(DEBUG3, CSTAR_FDW_NAME
 	     ": get foreign paths for relation ID %d", foreigntableid);
 
 	/*
@@ -753,13 +753,60 @@ cassGetForeignPlan(PlannerInfo *root,
 	Index		scan_relid = baserel->relid;
 	List	   *fdw_private;
 	List	   *local_exprs = NIL;
+	List	   *remote_conds = NIL;
+	List	   *remote_exprs = NIL;
+	List	   *params_list = NIL;
 	StringInfoData sql;
 	List	   *retrieved_attrs;
+	ListCell   *lc;
 
-	elog(DEBUG1, CSTAR_FDW_NAME
+	elog(DEBUG3, CSTAR_FDW_NAME
 	     ": get foreign plan for relation ID %d", foreigntableid);
 
-	local_exprs = extract_actual_clauses(scan_clauses, false);
+	/*
+	 * Separate the scan_clauses into those that can be executed remotely and
+	 * those that can't.  baserestrictinfo clauses that were previously
+	 * determined to be safe or unsafe by classifyConditions are shown in
+	 * fpinfo->remote_conds and fpinfo->local_conds.  Anything else in the
+	 * scan_clauses list will be a join clause, which we have to check for
+	 * remote-safety.
+	 *
+	 * Note: the join clauses we see here should be the exact same ones
+	 * previously examined by postgresGetForeignPaths.  Possibly it'd be worth
+	 * passing forward the classification work done then, rather than
+	 * repeating it here.
+	 *
+	 * This code must match "extract_actual_clauses(scan_clauses, false)"
+	 * except for the additional decision about remote versus local execution.
+	 * Note however that we don't strip the RestrictInfo nodes from the
+	 * remote_conds list, since appendWhereClause expects a list of
+	 * RestrictInfos.
+	 */
+	foreach(lc, scan_clauses)
+	{
+		RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
+
+		Assert(IsA(rinfo, RestrictInfo));
+
+		/* Ignore any pseudoconstants, they're dealt with elsewhere */
+		if (rinfo->pseudoconstant)
+			continue;
+
+		if (list_member_ptr(fpinfo->remote_conds, rinfo))
+		{
+			remote_conds = lappend(remote_conds, rinfo);
+			remote_exprs = lappend(remote_exprs, rinfo->clause);
+		}
+		else if (list_member_ptr(fpinfo->local_conds, rinfo))
+			local_exprs = lappend(local_exprs, rinfo->clause);
+		else if (is_cass_foreign_expr(root, baserel, rinfo->clause))
+		{
+			remote_conds = lappend(remote_conds, rinfo);
+			remote_exprs = lappend(remote_exprs, rinfo->clause);
+		}
+		else
+			local_exprs = lappend(local_exprs, rinfo->clause);
+	}
 
 	/*
 	 * Build the query string to be sent for execution, and identify
@@ -768,6 +815,15 @@ cassGetForeignPlan(PlannerInfo *root,
 	initStringInfo(&sql);
 	cassDeparseSelectSql(&sql, root, baserel, fpinfo->attrs_used,
 					 &retrieved_attrs);
+
+	if (remote_conds)
+	{
+		elog(DEBUG3, CSTAR_FDW_NAME ": remote conditions found for pushdown");
+		appendWhereClause(&sql, root, baserel, remote_conds,
+		                  true, &params_list);
+	}
+
+	elog(DEBUG1, CSTAR_FDW_NAME ": built CQL \"%s\"", sql.data);
 
 	/*
 	 * Build the fdw_private list that will be available to the executor.
@@ -822,7 +878,7 @@ cassExplainForeignScan(ForeignScanState *node, ExplainState *es)
 	char	*svr_table = NULL;
 	char	*primary_key = NULL;
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": explain foreign scan for relation ID %d",
+	elog(DEBUG3, CSTAR_FDW_NAME ": explain foreign scan for relation ID %d",
 	     RelationGetRelid(node->ss.ss_currentRelation));
 
 	if (es->verbose)
@@ -856,7 +912,7 @@ cassBeginForeignScan(ForeignScanState *node, int eflags)
 	ForeignServer *server;
 	UserMapping *user;
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign scan for relation ID %d",
+	elog(DEBUG3, CSTAR_FDW_NAME ": begin foreign scan for relation ID %d",
 	     RelationGetRelid(node->ss.ss_currentRelation));
 
 	/*
@@ -966,7 +1022,7 @@ cassReScanForeignScan(ForeignScanState *node)
 {
 	CassFdwScanState *fsstate = (CassFdwScanState *) node->fdw_state;
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": re-scan for foreign relation ID %d",
+	elog(DEBUG3, CSTAR_FDW_NAME ": re-scan for foreign relation ID %d",
 	     RelationGetRelid(node->ss.ss_currentRelation));
 
 	/* If we haven't created the cursor yet, nothing to do. */
@@ -996,7 +1052,7 @@ cassEndForeignScan(ForeignScanState *node)
 {
 	CassFdwScanState *fsstate = (CassFdwScanState *) node->fdw_state;
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": end foreign scan for relation ID %d",
+	elog(DEBUG3, CSTAR_FDW_NAME ": end foreign scan for relation ID %d",
 	     RelationGetRelid(node->ss.ss_currentRelation));
 
 	/* if fsstate is NULL, we are in EXPLAIN; nothing to do */
@@ -1128,7 +1184,7 @@ cassPlanForeignModify(PlannerInfo *root,
 	bool            doNothing       = false;
 	const char	   *primaryKey;
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": plan foreign modify");
+	elog(DEBUG3, CSTAR_FDW_NAME ": plan foreign modify");
 
 	initStringInfo(&sql);
 
@@ -1212,6 +1268,7 @@ cassPlanForeignModify(PlannerInfo *root,
 	}
 
 	heap_close(rel, NoLock);
+	elog(DEBUG1, CSTAR_FDW_NAME ": built CQL \"%s\"", sql.data);
 
 	/*
 	 * Build the fdw_private list that will be available to the executor.
@@ -1245,7 +1302,7 @@ static void cassBeginForeignModify(ModifyTableState *mtstate,
 	ListCell           *lc;
 	const char         *primaryKey;
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign modify on relation ID %d",
+	elog(DEBUG3, CSTAR_FDW_NAME ": begin foreign modify on relation ID %d",
 		RelationGetRelid(resultRelInfo->ri_RelationDesc));
 
 	/*
@@ -1400,7 +1457,7 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 	CassFuture*         future  = NULL;
 	CassError           rc      = CASS_OK;
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign INSERT on relation ID %d",
+	elog(DEBUG3, CSTAR_FDW_NAME ": begin foreign INSERT on relation ID %d",
 		RelationGetRelid(resultRelInfo->ri_RelationDesc));
 
 	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
@@ -1492,7 +1549,7 @@ static TupleTableSlot *cassExecForeignDelete(EState *estate,
  */
 static void cassEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo)
 {
-	elog(DEBUG1, CSTAR_FDW_NAME ": end foreign modify for relation ID %d",
+	elog(DEBUG3, CSTAR_FDW_NAME ": end foreign modify for relation ID %d",
 	     RelationGetRelid(resultRelInfo->ri_RelationDesc));
 
 	releaseCassResources(estate, resultRelInfo);
@@ -1504,7 +1561,7 @@ static void cassExplainForeignModify(ModifyTableState *mtstate,
                                      int subplan_index,
                                      struct ExplainState *es)
 {
-	elog(DEBUG1, CSTAR_FDW_NAME ": explain foreign modify");
+	elog(DEBUG3, CSTAR_FDW_NAME ": explain foreign modify");
 }
 
 /*
@@ -2027,7 +2084,7 @@ cassExecPKPredWrite(EState *estate,
 	Datum               value;
 	bool                isnull;
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": begin foreign %s on relation ID %d",
+	elog(DEBUG3, CSTAR_FDW_NAME ": begin foreign %s on relation ID %d",
 		 cqlOpName, RelationGetRelid(resultRelInfo->ri_RelationDesc));
 
 	oldcontext = MemoryContextSwitchTo(fmstate->temp_cxt);
@@ -2198,3 +2255,53 @@ cassImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	return result;
 }
 #endif  /* CSTAR_FDW_IMPORT_API */
+
+/*
+ * Force assorted GUC parameters to settings that ensure that we'll output
+ * data values in a form that is unambiguous to the remote server.
+ *
+ * This is rather expensive and annoying to do once per row, but there's
+ * little choice if we want to be sure values are transmitted accurately;
+ * we can't leave the settings in place between rows for fear of affecting
+ * user-visible computations.
+ *
+ * We use the equivalent of a function SET option to allow the settings to
+ * persist only until the caller calls reset_transmission_modes().  If an
+ * error is thrown in between, guc.c will take care of undoing the settings.
+ *
+ * The return value is the nestlevel that must be passed to
+ * reset_transmission_modes() to undo things.
+ */
+int
+set_transmission_modes(void)
+{
+	int			nestlevel = NewGUCNestLevel();
+
+	/*
+	 * The values set here should match what pg_dump does.  See also
+	 * configure_remote_session in connection.c.
+	 */
+	if (DateStyle != USE_ISO_DATES)
+		(void) set_config_option("datestyle", "ISO",
+								 PGC_USERSET, PGC_S_SESSION,
+								 GUC_ACTION_SAVE, true, 0, false);
+	if (IntervalStyle != INTSTYLE_POSTGRES)
+		(void) set_config_option("intervalstyle", "postgres",
+								 PGC_USERSET, PGC_S_SESSION,
+								 GUC_ACTION_SAVE, true, 0, false);
+	if (extra_float_digits < 3)
+		(void) set_config_option("extra_float_digits", "3",
+								 PGC_USERSET, PGC_S_SESSION,
+								 GUC_ACTION_SAVE, true, 0, false);
+
+	return nestlevel;
+}
+
+/*
+ * Undo the effects of set_transmission_modes().
+ */
+void
+reset_transmission_modes(int nestlevel)
+{
+	AtEOXact_GUC(true, nestlevel);
+}
