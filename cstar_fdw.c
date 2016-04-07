@@ -1086,7 +1086,7 @@ cassAddForeignUpdateTargets(Query *parsetree,
 	bool		has_PK       = false;
 	int         i;
 
-	elog(DEBUG1, CSTAR_FDW_NAME
+	elog(DEBUG3, CSTAR_FDW_NAME
 	     ": add target column(s) for write on relation ID %d", relid);
 
 	cassGetPKOption(relid, &primary_key);
