@@ -10,6 +10,8 @@
 
 /* User-visible name for logging and reporting purposes */
 #define CSTAR_FDW_NAME				"cstar_fdw"
+#define MSECS_PER_SEC				1000
+#define LITERAL_UTC				"UTC"
 
 /* in cstar_connect.c */
 extern CassSession *pgcass_GetConnection(ForeignServer *server, UserMapping *user,

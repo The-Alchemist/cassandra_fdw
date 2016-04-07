@@ -1,6 +1,8 @@
 #include "postgres.h"
 
 #include <cassandra.h>
+#include <inttypes.h>
+#include <time.h>
 
 #include "cstar_fdw.h"
 
@@ -38,6 +40,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/lsyscache.h"
+#include "utils/timestamp.h"
 
 #if PG_VERSION_NUM >= 90300
 #    define CSTAR_FDW_WRITE_API
@@ -1742,6 +1745,7 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 		break;
 	}
 	case CASS_VALUE_TYPE_BIGINT:
+	case CASS_VALUE_TYPE_COUNTER:
 	{
 		cass_int64_t i;
 		cass_value_get_int64(value, &i);
@@ -1778,6 +1782,16 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 		size_t s_length;
 		cass_value_get_string(value, &s, &s_length);
 		appendStringInfo(buf, "%.*s", (int)s_length, s);
+		break;
+	}
+	case CASS_VALUE_TYPE_TIMESTAMP:
+	{
+		cass_int64_t timestamp;
+		cass_value_get_int64(value, &timestamp);
+		/* cassandra stores in milli seconds so convert to seconds */
+		timestamp /=  MSECS_PER_SEC;
+	        appendStringInfo(buf, "%s %s",
+				 asctime(gmtime(((time_t *)&timestamp))), LITERAL_UTC);
 		break;
 	}
 	case CASS_VALUE_TYPE_UUID:
@@ -1831,6 +1845,7 @@ pgcass_transformDataType(StringInfo buf, CassValueType type)
 		break;
 	}
 	case CASS_VALUE_TYPE_BIGINT:
+	case CASS_VALUE_TYPE_COUNTER:
 	{
 		valid_datatype = "bigint";
 		break;
@@ -1864,7 +1879,7 @@ pgcass_transformDataType(StringInfo buf, CassValueType type)
 	}
 	case CASS_VALUE_TYPE_TIMESTAMP:
 	{
-		invalid_datatype = "timestamp";
+		valid_datatype = "timestamp(0) with time zone";
 		break;
 	}
 	case CASS_VALUE_TYPE_INET:
@@ -1985,6 +2000,32 @@ static void bind_cass_statement_param(Oid type, Datum value,
 			str_val = OidOutputFunctionCall(output_func_oid, value);
 
 			cass_statement_bind_string(statement, pindex, str_val);
+			break;
+		}
+		case TIMESTAMPTZOID:
+		case TIMESTAMPOID:
+		{
+			struct pg_tm datetime_tm;
+			int32 tzoffset = 0;
+			fsec_t datetime_fsec;
+			Timestamp time;
+
+			/* get the parts */
+			(void) timestamp2tm(DatumGetTimestampTz(value),
+				            &tzoffset, 
+				            &datetime_tm,
+				            &datetime_fsec,
+				            NULL,
+				            NULL);
+			/*
+			 * PostgreSQL stores the timestamp in the datetime format. The unix timestamp
+			 * is essentially the difference between this value and the timestamp
+			 * representing the epoch datetime. Also PostgreSQL representation is in
+			 * microseconds. Since cassandra expects the timestamp in milliseconds
+			 * we further convert this into milliseconds.
+			 */
+			time = (DatumGetTimestampTz(value)- SetEpochTimestamp() + tzoffset) / MSECS_PER_SEC;
+			cass_statement_bind_int64(statement, pindex, (int64)time);
 			break;
 		}
 		default:
