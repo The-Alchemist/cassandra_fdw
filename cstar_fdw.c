@@ -823,7 +823,7 @@ cassGetForeignPlan(PlannerInfo *root,
 		                  true, &params_list);
 	}
 
-	elog(DEBUG1, CSTAR_FDW_NAME ": built CQL \"%s\"", sql.data);
+	elog(DEBUG1, CSTAR_FDW_NAME ": built CQL:\n\n%s\n", sql.data);
 
 	/*
 	 * Build the fdw_private list that will be available to the executor.
@@ -1268,7 +1268,7 @@ cassPlanForeignModify(PlannerInfo *root,
 	}
 
 	heap_close(rel, NoLock);
-	elog(DEBUG1, CSTAR_FDW_NAME ": built CQL \"%s\"", sql.data);
+	elog(DEBUG1, CSTAR_FDW_NAME ": built CQL:\n\n%s\n", sql.data);
 
 	/*
 	 * Build the fdw_private list that will be available to the executor.
