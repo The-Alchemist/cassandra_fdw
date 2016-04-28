@@ -491,7 +491,7 @@ is_cass_foreign_expr(PlannerInfo *root,
 		return false;
 	}
 
-	elog(DEBUG3, CSTAR_FDW_NAME ": pushdown expression checks passed");
+	elog(DEBUG5, CSTAR_FDW_NAME ": pushdown expression checks passed");
 	/* OK to evaluate on the remote server */
 	return true;
 }
@@ -657,20 +657,23 @@ foreign_expr_walker(Node *node,
 		break;
 		case T_Param:
 		{
-			elog(DEBUG4,
-			     CSTAR_FDW_NAME ": pushdown not supported for T_Param");
+			elog(DEBUG2,
+			     CSTAR_FDW_NAME ": pushdown prevented because node type "
+			     "T_Param is not supported.");
 			return false;
 		}
 		case T_ArrayRef:
 		{
-			elog(DEBUG4,
-			     CSTAR_FDW_NAME ": pushdown not supported for T_ArrayRef");
+			elog(DEBUG2,
+			     CSTAR_FDW_NAME ": pushdown prevented because node type "
+			     "T_ArrayRef is not supported.");
 			return false;
 		}
 		case T_FuncExpr:
 		{
-			elog(DEBUG4,
-			     CSTAR_FDW_NAME ": pushdown not supported for T_FuncExpr");
+			elog(DEBUG2,
+			     CSTAR_FDW_NAME ": pushdown prevented because node type "
+			     "T_FuncExpr is not supported.");
 			return false;
 		}
 		case T_OpExpr:
@@ -719,32 +722,37 @@ foreign_expr_walker(Node *node,
 		break;
 		case T_DistinctExpr:	/* struct-equivalent to OpExpr */
 		{
-			elog(DEBUG4,
-			     CSTAR_FDW_NAME ": pushdown not supported for T_DistinctExpr");
+			elog(DEBUG2,
+			     CSTAR_FDW_NAME ": pushdown prevented because node type "
+			     "T_DistinctExpr is not supported.");
 			return false;
 		}
 		case T_ScalarArrayOpExpr:
 		{
-			elog(DEBUG4,
-			     CSTAR_FDW_NAME ": pushdown not supported for T_ScalarArrayOpExpr");
+			elog(DEBUG2,
+			     CSTAR_FDW_NAME ": pushdown prevented because node type "
+			     "T_ScalarArrayOpExpr is not supported.");
 			return false;
 		}
 		case T_RelabelType:
 		{
-			elog(DEBUG4,
-			     CSTAR_FDW_NAME ": pushdown not supported for T_RelabelType");
+			elog(DEBUG2,
+			     CSTAR_FDW_NAME ": pushdown prevented because node type "
+			     "T_RelabelType is not supported.");
 			return false;
 		}
 		case T_NullTest:
 		{
-			elog(DEBUG4,
-			     CSTAR_FDW_NAME ": pushdown not supported for T_NullTest");
+			elog(DEBUG2,
+			     CSTAR_FDW_NAME ": pushdown prevented because node type "
+			     "T_NullTest is not supported.");
 			return false;
 		}
 		case T_ArrayExpr:
 		{
-			elog(DEBUG4,
-			     CSTAR_FDW_NAME ": pushdown not supported for T_ArrayExpr");
+			elog(DEBUG2,
+			     CSTAR_FDW_NAME ": pushdown prevented because node type "
+			     "T_ArrayExpr is not supported.");
 			return false;
 		}
 		case T_List:
