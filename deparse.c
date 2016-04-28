@@ -485,8 +485,9 @@ is_cass_foreign_expr(PlannerInfo *root,
 	 */
 	if (contain_mutable_functions((Node *) expr))
 	{
-		elog(DEBUG3, CSTAR_FDW_NAME
-		     ": pushdown prevented because of mutable function(s)");
+		elog(DEBUG2, CSTAR_FDW_NAME
+		     ": pushdown prevented because the results of mutable functions "
+		     " are not stable.");
 		return false;
 	}
 
