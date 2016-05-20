@@ -5,7 +5,7 @@ OBJS = cstar_fdw.o cstar_connect.o deparse.o
 SHLIB_LINK = -lcassandra
 
 EXTENSION = cstar_fdw
-DATA = cstar_fdw--2.2.sql
+DATA = cstar_fdw--3.0.sql
 
 REGRESS = cstar_fdw
 
