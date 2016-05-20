@@ -1,6 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * Copyright (c) 2014-2016, BigSQL
+ * Portions Copyright (c) 2012-2015, PostgreSQL Global Development Group & Others
  *
  *-------------------------------------------------------------------------
  */
@@ -15,6 +16,6 @@ RETURNS void
 AS 'MODULE_PATHNAME'
 LANGUAGE C STRICT;
 
-CREATE FOREIGN DATA WRAPPER cstar_fdw
+CREATE FOREIGN DATA WRAPPER cassandra_fdw
   HANDLER cstar_fdw_handler
   VALIDATOR cstar_fdw_validator;

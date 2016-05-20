@@ -13,9 +13,11 @@ requirement for this FDW is the Cassandra CPP driver 2.3
 (https://github.com/datastax/cpp-driver) which we will set up as part of
 the following section.
 
-## Build
+## Install
 
-### Download the source
+This FDW is included in the [PostgreSQL by BigSQL](http://bigsql.org) distribution.  All you have to do is follow the usage instructions below.  There are no special pre-requirements, since this CassandraFDW is built with the native cpp-driver.
+
+## Building from Source
 
 First, download the source code under the contrib subdirectory of the
 PostgreSQL source tree and change into the FDW subdirectory:
