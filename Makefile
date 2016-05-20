@@ -4,10 +4,10 @@ OBJS = cstar_fdw.o cstar_connect.o deparse.o
 
 SHLIB_LINK = -lcassandra
 
-EXTENSION = cstar_fdw
+EXTENSION = cassandra_fdw
 DATA = cstar_fdw--3.0.sql
 
-REGRESS = cstar_fdw
+REGRESS = cassandra_fdw
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config
