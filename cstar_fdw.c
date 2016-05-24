@@ -91,7 +91,7 @@ static struct CassFdwOption valid_options[] =
 
 /*
  * This enum describes what's kept in the fdw_private list for a ModifyTable
- * node referencing a cstar_fdw foreign table.  We store:
+ * node referencing a cassandra_fdw foreign table.  We store:
  *
  * 1) INSERT/UPDATE/DELETE statement text to be sent to the remote server
  * 2) Integer list of target attribute numbers for INSERT/UPDATE
@@ -374,7 +374,7 @@ cstar_fdw_validator(PG_FUNCTION_ARGS)
 	ListCell	*cell;
 
 	/*
-	 * Check that only options supported by cstar_fdw,
+	 * Check that only options supported by cassandra_fdw,
 	 * and allowed for the current object type, are given.
 	*/
 	foreach(cell, options_list)
@@ -905,13 +905,13 @@ cassBeginForeignScan(ForeignScanState *node, int eflags)
 
 	/* Create contexts for batches of tuples and per-tuple temp workspace. */
 	fsstate->batch_cxt = AllocSetContextCreate(estate->es_query_cxt,
-											   "cstar_fdw tuple data",
+											   "cassandra_fdw tuple data",
 											   ALLOCSET_DEFAULT_MINSIZE,
 											   ALLOCSET_DEFAULT_INITSIZE,
 											   ALLOCSET_DEFAULT_MAXSIZE);
 
 	fsstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
-											  "cstar_fdw temporary data",
+											  "cassandra_fdw temporary data",
 											  ALLOCSET_SMALL_MINSIZE,
 											  ALLOCSET_SMALL_INITSIZE,
 											  ALLOCSET_SMALL_MAXSIZE);
@@ -1296,7 +1296,7 @@ static void cassBeginForeignModify(ModifyTableState *mtstate,
 
 	/* Create context for per-tuple temp workspace. */
 	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
-	                                          "cstar_fdw temporary data",
+	                                          "cassandra_fdw temporary data",
 	                                          ALLOCSET_SMALL_MINSIZE,
 	                                          ALLOCSET_SMALL_INITSIZE,
 	                                          ALLOCSET_SMALL_MAXSIZE);
