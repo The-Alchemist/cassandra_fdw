@@ -1,5 +1,5 @@
 
-MODULE_big = cstar_fdw
+MODULE_big = cassandra_fdw
 OBJS = cstar_fdw.o cstar_connect.o deparse.o
 
 SHLIB_LINK = -lcassandra
