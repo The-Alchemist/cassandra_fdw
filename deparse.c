@@ -14,7 +14,7 @@
  * Portions Copyright (c) 2012-2015, PostgreSQL Global Development Group & Others
  *
  * IDENTIFICATION
- *		  contrib/cstar_fdw/deparse.c
+ *		  contrib/cassandra_fdw/deparse.c
  *
  *-------------------------------------------------------------------------
  */
