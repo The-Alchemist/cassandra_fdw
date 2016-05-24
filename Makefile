@@ -5,7 +5,7 @@ OBJS = cstar_fdw.o cstar_connect.o deparse.o
 SHLIB_LINK = -lcassandra
 
 EXTENSION = cassandra_fdw
-DATA = cassandra_fdw--3.0.sql
+DATA = cassandra_fdw--3.0.0.sql
 
 REGRESS = cassandra_fdw
 
