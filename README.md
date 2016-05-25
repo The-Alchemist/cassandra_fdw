@@ -22,7 +22,7 @@ requirement for this FDW is the
 First, download the source code under the contrib subdirectory of the
 PostgreSQL source tree and change into the FDW subdirectory:
 
-```
+```sh
 cd cstar_fdw
 ```
 
@@ -30,7 +30,7 @@ cd cstar_fdw
 
 Check out version 2.3 of the cpp-driver:
 
-```
+```sh
 git clone git@github.com:datastax/cpp-driver.git
 cd cpp-driver
 git checkout 2.3.0
@@ -38,14 +38,14 @@ git checkout 2.3.0
 
 Next, build and install it:
 
-```
+```sh
 cmake .
 make && sudo make install
 ```
 
 ### Build and Install the FDW
 
-```
+```sh
 cd ..
 USE_PGXS=1 make
 USE_PGXS=1 make install
@@ -70,26 +70,26 @@ The following parameters can be set on a Cassandra foreign table object:
 Here is an example:
 
 ```sql
-	-- Load EXTENSION first time after install.
-	CREATE EXTENSION cassandra_fdw;
+    -- Load EXTENSION first time after install.
+    CREATE EXTENSION cassandra_fdw;
 
-	-- CREATE SERVER object
-	CREATE SERVER cass_serv FOREIGN DATA WRAPPER cstar_fdw
-		OPTIONS (host '127.0.0.1');
+    -- CREATE SERVER object.
+    CREATE SERVER cass_serv FOREIGN DATA WRAPPER cstar_fdw
+        OPTIONS (host '127.0.0.1');
 
-	-- Create a USER MAPPING for the SERVER.
-	CREATE USER MAPPING FOR public SERVER cass_serv
-		OPTIONS(username 'test', password 'test');
+    -- Create a USER MAPPING for the SERVER.
+    CREATE USER MAPPING FOR public SERVER cass_serv
+        OPTIONS (username 'test', password 'test');
 
-	-- CREATE a FOREIGN TABLE.
-	--
-	-- Note that a valid "primary_key" OPTION is required in order to use
-	-- UPDATE or DELETE support.
-	CREATE FOREIGN TABLE test (id int) SERVER cass_serv OPTIONS
-        (schema_name 'example', table_name 'oorder', primary_key 'id');
+    -- CREATE a FOREIGN TABLE.
+    --
+    -- Note that a valid "primary_key" OPTION is required in order to use
+    -- UPDATE or DELETE support.
+    CREATE FOREIGN TABLE test (id int) SERVER cass_serv
+    OPTIONS (schema_name 'example', table_name 'oorder', primary_key 'id');
 
-	-- Query the FOREIGN TABLE.
-	SELECT * FROM test limit 5;
+    -- Query the FOREIGN TABLE.
+    SELECT * FROM test limit 5;
 ```
 
 For the full list of supported parameters, see [Reference Documentation PDF](doc.pdf).
