@@ -125,7 +125,7 @@ IMPORT FOREIGN SCHEMA TEST_SCHEMA
 
 Presently, `IMPORT`ing a `FOREIGN SCHEMA` does not automatically bring
 in `PRIMARY KEY` information.  You can manually add the `OPTION`
-*"primary_key"* to an *IMPORTed TABLE* using the `ALTER FOREIGN TABLE`
+`primary_key` to an `IMPORT`ed `TABLE` using the `ALTER FOREIGN TABLE`
 command as shown below:
 
 ```sql
