@@ -1,14 +1,13 @@
 cassandra_fdw
 =============
 
-Foreign Data Wrapper (FDW) that facilitates access to Cassandra 3.0+
-from within PG 9.5+
-
-Cassandra: http://cassandra.apache.org/
+Foreign Data Wrapper (FDW) that facilitates access to
+[Cassandra](http://cassandra.apache.org/) 3.0+ from within
+[PG](http://www.postgresql.org/) 9.5+.
 
 ## Install
 
-This FDW is included in the [PostgreSQL by BigSQL](http://bigsql.org)
+This FDW is included in the [Postgres by BigSQL](http://bigsql.org)
 distribution.  All you have to do is follow the usage instructions
 below.  There are no special pre-requirements, since this CassandraFDW
 is built with the native cpp-driver.
