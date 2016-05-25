@@ -12,7 +12,7 @@ distribution.
 
 All you have to do is follow the usage instructions
 below.  There are no special pre-requirements, since we package the
-native *cpp-driver* with this extension.
+native *cpp-driver* with this extension in the BigSQL distribution.
 
 ## Building from Source ##
 
