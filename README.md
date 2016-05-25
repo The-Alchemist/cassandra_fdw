@@ -8,7 +8,9 @@ Foreign Data Wrapper (FDW) that facilitates access to
 ## Install ##
 
 This FDW is included in the [Postgres by BigSQL](http://bigsql.org)
-distribution.  All you have to do is follow the usage instructions
+distribution.
+
+All you have to do is follow the usage instructions
 below.  There are no special pre-requirements, since this *CassandraFDW*
 is built with the native *cpp-driver*.
 
@@ -36,7 +38,10 @@ cd cpp-driver
 git checkout 2.3.0
 ```
 
-Next, build and install it:
+Next, build and install it.  We show an example on Linux using
+developer-defaults with all the transitive dependencies installed but
+for more information please see the cpp-driver
+[Building Documentation](http://datastax.github.io/cpp-driver/topics/building/).
 
 ```sh
 cmake .
