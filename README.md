@@ -11,8 +11,8 @@ This FDW is included in the [Postgres by BigSQL](http://bigsql.org)
 distribution.
 
 All you have to do is follow the usage instructions
-below.  There are no special pre-requirements, since this *CassandraFDW*
-is built with the native *cpp-driver*.
+below.  There are no special pre-requirements, since we package the
+native *cpp-driver* with this extension.
 
 ## Building from Source ##
 
