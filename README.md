@@ -44,8 +44,7 @@ cmake .
 make && sudo make install
 ```
 
-
-Next, build and install the FDW as below:
+### Build and Install the FDW
 
 ```
 cd ..
