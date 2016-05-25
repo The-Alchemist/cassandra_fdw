@@ -40,8 +40,9 @@ git checkout 2.3.0
 
 Next, build and install it.  We show an example on Linux using
 developer-defaults with all the transitive dependencies installed but
-for more information please see the cpp-driver
-[Building Documentation](http://datastax.github.io/cpp-driver/topics/building/).
+for more information please see the
+[Build Documentation](http://datastax.github.io/cpp-driver/topics/building/)
+from the cpp-driver project.
 
 ```sh
 cmake .
