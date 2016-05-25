@@ -5,19 +5,19 @@ Foreign Data Wrapper (FDW) that facilitates access to
 [Cassandra](http://cassandra.apache.org/) 3.0+ from within
 [PG](http://www.postgresql.org/) 9.5+.
 
-## Install
+## Install ##
 
 This FDW is included in the [Postgres by BigSQL](http://bigsql.org)
 distribution.  All you have to do is follow the usage instructions
-below.  There are no special pre-requirements, since this CassandraFDW
-is built with the native cpp-driver.
+below.  There are no special pre-requirements, since this *CassandraFDW*
+is built with the native *cpp-driver*.
 
-## Building from Source
+## Building from Source ##
 
 In addition to normal PostgreSQL FDW pre-reqs, the primary specific
 requirement for this FDW is the
-[Cassandra CPP driver](https://github.com/datastax/cpp-driver) version
-2.3.
+[Cassandra CPP Driver](https://github.com/datastax/cpp-driver) *version
+2.3*.
 
 First, download the source code under the contrib subdirectory of the
 PostgreSQL source tree and change into the FDW subdirectory:
@@ -26,9 +26,9 @@ PostgreSQL source tree and change into the FDW subdirectory:
 cd cassandra_fdw
 ```
 
-### Build and Install cpp-driver
+### Build and Install cpp-driver ###
 
-Check out version 2.3 of the cpp-driver:
+Check out *version 2.3* of the cpp-driver:
 
 ```sh
 git clone git@github.com:datastax/cpp-driver.git
@@ -43,7 +43,7 @@ cmake .
 make && sudo make install
 ```
 
-### Build and Install the FDW
+### Build and Install the FDW ###
 
 ```sh
 cd ..
@@ -51,7 +51,7 @@ USE_PGXS=1 make
 USE_PGXS=1 make install
 ```
 
-## Usage
+## Usage ##
 
 The following parameter **must** be set on a Cassandra foreign server
 object:
@@ -96,7 +96,7 @@ For the full list of supported parameters, see [Reference Documentation PDF](doc
 
 ###
 
-Supports IMPORT FOREIGN SCHEMA feature
+Supports `IMPORT FOREIGN SCHEMA` feature
 
 Here are some examples:
 
@@ -117,15 +117,15 @@ IMPORT FOREIGN SCHEMA TEST_SCHEMA
     FROM SERVER cassandra_test_server INTO TEST_SCHEMA;
 ```
 
-Presently, IMPORTing a FOREIGN SCHEMA does not automatically bring in
-PRIMARY KEY information.  You can manually add the OPTION "primary_key"
-to an IMPORTed TABLE using the ALTER FOREIGN TABLE command as shown
-below:
+Presently, `IMPORT`ing a `FOREIGN SCHEMA` does not automatically bring
+in `PRIMARY KEY` information.  You can manually add the `OPTION`
+*"primary_key"* to an *IMPORTed TABLE* using the `ALTER FOREIGN TABLE`
+command as shown below:
 
 ```sql
 ALTER FOREIGN TABLE test OPTIONS (ADD primary_key 'id');
 ```
 
-## Documentation
+## Documentation ##
 
 [Reference PDF](doc.pdf)
