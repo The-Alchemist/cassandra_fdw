@@ -70,26 +70,26 @@ The following parameters can be set on a Cassandra foreign table object:
 Here is an example:
 
 ```sql
-    -- Load EXTENSION first time after install.
-    CREATE EXTENSION cassandra_fdw;
+-- Load EXTENSION first time after install.
+CREATE EXTENSION cassandra_fdw;
 
-    -- CREATE SERVER object.
-    CREATE SERVER cass_serv FOREIGN DATA WRAPPER cstar_fdw
-        OPTIONS (host '127.0.0.1');
+-- CREATE SERVER object.
+CREATE SERVER cass_serv FOREIGN DATA WRAPPER cstar_fdw
+    OPTIONS (host '127.0.0.1');
 
-    -- Create a USER MAPPING for the SERVER.
-    CREATE USER MAPPING FOR public SERVER cass_serv
-        OPTIONS (username 'test', password 'test');
+-- Create a USER MAPPING for the SERVER.
+CREATE USER MAPPING FOR public SERVER cass_serv
+    OPTIONS (username 'test', password 'test');
 
-    -- CREATE a FOREIGN TABLE.
-    --
-    -- Note that a valid "primary_key" OPTION is required in order to use
-    -- UPDATE or DELETE support.
-    CREATE FOREIGN TABLE test (id int) SERVER cass_serv
-        OPTIONS (schema_name 'example', table_name 'oorder', primary_key 'id');
+-- CREATE a FOREIGN TABLE.
+--
+-- Note that a valid "primary_key" OPTION is required in order to use
+-- UPDATE or DELETE support.
+CREATE FOREIGN TABLE test (id int) SERVER cass_serv
+    OPTIONS (schema_name 'example', table_name 'oorder', primary_key 'id');
 
-    -- Query the FOREIGN TABLE.
-    SELECT * FROM test LIMIT 5;
+-- Query the FOREIGN TABLE.
+SELECT * FROM test LIMIT 5;
 ```
 
 For the full list of supported parameters, see [Reference Documentation PDF](doc.pdf).
@@ -101,21 +101,20 @@ Supports IMPORT FOREIGN SCHEMA feature
 Here are some examples:
 
 ```sql
-    -- The Test_Tab1 was created as case sensitive in Cassandra and
-    -- test_tab2 was created as case-insensitive.  Only the tables
-    -- "Test_Tab1" and test_tab2 are imported from the Cassandra
-    -- TEST_SCHEMA keyspace.  If there are existing objects in the
-    -- PostgreSQL FOREIGN SCHEMA TEST_SCHEMA they will not be removed.
+-- The Test_Tab1 was created as case sensitive in Cassandra and
+-- test_tab2 was created as case-insensitive.  Only the tables
+-- "Test_Tab1" and test_tab2 are imported from the Cassandra
+-- TEST_SCHEMA keyspace.  If there are existing objects in the
+-- PostgreSQL FOREIGN SCHEMA TEST_SCHEMA they will not be removed.
+IMPORT FOREIGN SCHEMA TEST_SCHEMA
+    LIMIT TO ("Test_Tab1", test_tab2)
+    FROM SERVER cassandra_test_server INTO TEST_SCHEMA;
 
-    IMPORT FOREIGN SCHEMA TEST_SCHEMA
-        LIMIT TO ("Test_Tab1", test_tab2)
-        FROM SERVER cassandra_test_server INTO TEST_SCHEMA;
-
-    -- Import all other objects from the Cassandra TEST_SCHEMA schema
-    -- except "Test_Tab1" and test_tab2.
-    IMPORT FOREIGN SCHEMA TEST_SCHEMA
-        EXCEPT ("Test_Tab1", test_tab2)
-        FROM SERVER cassandra_test_server INTO TEST_SCHEMA;
+-- Import all other objects from the Cassandra TEST_SCHEMA schema
+-- except "Test_Tab1" and test_tab2.
+IMPORT FOREIGN SCHEMA TEST_SCHEMA
+    EXCEPT ("Test_Tab1", test_tab2)
+    FROM SERVER cassandra_test_server INTO TEST_SCHEMA;
 ```
 
 Presently, IMPORTing a FOREIGN SCHEMA does not automatically bring in
