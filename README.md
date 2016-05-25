@@ -23,7 +23,7 @@ First, download the source code under the contrib subdirectory of the
 PostgreSQL source tree and change into the FDW subdirectory:
 
 ```sh
-cd cstar_fdw
+cd cassandra_fdw
 ```
 
 ### Build and Install cpp-driver
@@ -74,7 +74,7 @@ Here is an example:
 CREATE EXTENSION cassandra_fdw;
 
 -- CREATE SERVER object.
-CREATE SERVER cass_serv FOREIGN DATA WRAPPER cstar_fdw
+CREATE SERVER cass_serv FOREIGN DATA WRAPPER cassandra_fdw
     OPTIONS (host '127.0.0.1');
 
 -- Create a USER MAPPING for the SERVER.
