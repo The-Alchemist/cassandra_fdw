@@ -14,7 +14,7 @@
  * Portions Copyright (c) 2012-2015, PostgreSQL Global Development Group & Others
  *
  * IDENTIFICATION
- *		  contrib/cassandra_fdw/deparse.c
+ *		  cassandra_fdw/deparse.c
  *
  *-------------------------------------------------------------------------
  */
@@ -41,7 +41,6 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
-
 
 /*
  * Global context for foreign_expr_walker's search of an expression tree.
@@ -905,7 +904,6 @@ appendWhereClause(StringInfo buf,
 
 	reset_transmission_modes(nestlevel);
 }
-
 
 /*
  * Construct name to use for given column, and emit it into buf.
