@@ -86,10 +86,10 @@ Here is an example:
     -- Note that a valid "primary_key" OPTION is required in order to use
     -- UPDATE or DELETE support.
     CREATE FOREIGN TABLE test (id int) SERVER cass_serv
-    OPTIONS (schema_name 'example', table_name 'oorder', primary_key 'id');
+        OPTIONS (schema_name 'example', table_name 'oorder', primary_key 'id');
 
     -- Query the FOREIGN TABLE.
-    SELECT * FROM test limit 5;
+    SELECT * FROM test LIMIT 5;
 ```
 
 For the full list of supported parameters, see [Reference Documentation PDF](doc.pdf).
