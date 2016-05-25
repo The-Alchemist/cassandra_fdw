@@ -1,4 +1,4 @@
-cstar_fdw
+cassandra_fdw
 =============
 
 Foreign Data Wrapper (FDW) that facilitates access to Cassandra 3.0+
@@ -6,18 +6,19 @@ from within PG 9.5+
 
 Cassandra: http://cassandra.apache.org/
 
-## Prepare
-
-In addition to normal PostgreSQL FDW pre-reqs, the primary specific
-requirement for this FDW is the Cassandra CPP driver 2.3
-(https://github.com/datastax/cpp-driver) which we will set up as part of
-the following section.
-
 ## Install
 
-This FDW is included in the [PostgreSQL by BigSQL](http://bigsql.org) distribution.  All you have to do is follow the usage instructions below.  There are no special pre-requirements, since this CassandraFDW is built with the native cpp-driver.
+This FDW is included in the [PostgreSQL by BigSQL](http://bigsql.org)
+distribution.  All you have to do is follow the usage instructions
+below.  There are no special pre-requirements, since this CassandraFDW
+is built with the native cpp-driver.
 
 ## Building from Source
+
+In addition to normal PostgreSQL FDW pre-reqs, the primary specific
+requirement for this FDW is the
+[Cassandra CPP driver](https://github.com/datastax/cpp-driver) version
+2.3.
 
 First, download the source code under the contrib subdirectory of the
 PostgreSQL source tree and change into the FDW subdirectory:
@@ -43,7 +44,8 @@ cmake .
 make && sudo make install
 ```
 
-### Build and Install cstar_fdw
+
+Next, build and install the FDW as below:
 
 ```
 cd ..
@@ -53,7 +55,7 @@ USE_PGXS=1 make install
 
 ## Usage
 
-The following parameter must be set on a Cassandra foreign server
+The following parameter **must** be set on a Cassandra foreign server
 object:
 
   * **`host`**: the address(es) or hostname(s) of the Cassandra server(s).
@@ -61,31 +63,34 @@ object:
 
 The following parameters can be set on a Cassandra foreign table object:
 
-  * **`schema_name`**: the name of the Cassandra keyspace to query.  Defaults to "public".
-  * **`table_name`**: the name of the Cassandra table to query.  Defaults to the FOREIGN TABLE name used in the relevant CREATE command.
+  * **`schema_name`**: the name of the Cassandra KEYSPACE to query.
+    Defaults to "public".
+
+  * **`table_name`**: the name of the Cassandra TABLE to query.
+    Defaults to the FOREIGN TABLE name used in the relevant CREATE command.
 
 Here is an example:
 
-```
-	-- load EXTENSION first time after install.
-	CREATE EXTENSION cstar_fdw;
+```sql
+	-- Load EXTENSION first time after install.
+	CREATE EXTENSION cassandra_fdw;
 
-	-- create server object
+	-- CREATE SERVER object
 	CREATE SERVER cass_serv FOREIGN DATA WRAPPER cstar_fdw
 		OPTIONS (host '127.0.0.1');
 
-	-- Create a user mapping for the server.
+	-- Create a USER MAPPING for the SERVER.
 	CREATE USER MAPPING FOR public SERVER cass_serv
 		OPTIONS(username 'test', password 'test');
 
-	-- CREATE a FOREIGN TABLE on the server.
+	-- CREATE a FOREIGN TABLE.
 	--
 	-- Note that a valid "primary_key" OPTION is required in order to use
 	-- UPDATE or DELETE support.
 	CREATE FOREIGN TABLE test (id int) SERVER cass_serv OPTIONS
         (schema_name 'example', table_name 'oorder', primary_key 'id');
 
-	-- Query the foreign table.
+	-- Query the FOREIGN TABLE.
 	SELECT * FROM test limit 5;
 ```
 
@@ -97,15 +102,22 @@ Supports IMPORT FOREIGN SCHEMA feature
 
 Here are some examples:
 
-```
-	-- IMPORT cassandra test_schema to the local schema.
-	IMPORT FOREIGN SCHEMA test_schema FROM SERVER cassandra2_test_server INTO test_schema;
+```sql
+    -- The Test_Tab1 was created as case sensitive in Cassandra and
+    -- test_tab2 was created as case-insensitive.  Only the tables
+    -- "Test_Tab1" and test_tab2 are imported from the Cassandra
+    -- TEST_SCHEMA keyspace.  If there are existing objects in the
+    -- PostgreSQL FOREIGN SCHEMA TEST_SCHEMA they will not be removed.
 
-	-- IMPORT only test_tab1, test_tab2 from cassandra test_schema to the local schema.
-	IMPORT FOREIGN SCHEMA test_schema LIMIT TO (test_tab1, test_tab2) FROM SERVER  cassandra2_test_server INTO test_schema;
+    IMPORT FOREIGN SCHEMA TEST_SCHEMA
+        LIMIT TO ("Test_Tab1", test_tab2)
+        FROM SERVER cassandra_test_server INTO TEST_SCHEMA;
 
-	-- IMPORT all other objects from the cassandra test_schema schema except test_tab1 and test_tab2.
-	IMPORT FOREIGN SCHEMA test_schema EXCEPT (test_tab1, test_tab2) FROM SERVER  cassandra2_test_server INTO test_schema;
+    -- Import all other objects from the Cassandra TEST_SCHEMA schema
+    -- except "Test_Tab1" and test_tab2.
+    IMPORT FOREIGN SCHEMA TEST_SCHEMA
+        EXCEPT ("Test_Tab1", test_tab2)
+        FROM SERVER cassandra_test_server INTO TEST_SCHEMA;
 ```
 
 Presently, IMPORTing a FOREIGN SCHEMA does not automatically bring in
@@ -113,7 +125,7 @@ PRIMARY KEY information.  You can manually add the OPTION "primary_key"
 to an IMPORTed TABLE using the ALTER FOREIGN TABLE command as shown
 below:
 
-```
+```sql
 ALTER FOREIGN TABLE test OPTIONS (ADD primary_key 'id');
 ```
 
