@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * deparse.c
- *		  Query deparser for cstar_fdw based on the one from postgres_fdw.
+ *		  Query deparser for cassandra_fdw based on the one from postgres_fdw.
  *
  * This file includes functions that examine query WHERE clauses to see
  * whether they're safe to send to the remote server for execution, as well as
@@ -14,7 +14,7 @@
  * Portions Copyright (c) 2012-2015, PostgreSQL Global Development Group & Others
  *
  * IDENTIFICATION
- *		  contrib/cstar_fdw/deparse.c
+ *		  contrib/cassandra_fdw/deparse.c
  *
  *-------------------------------------------------------------------------
  */

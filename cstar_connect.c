@@ -65,7 +65,7 @@ pgcass_GetConnection(ForeignServer *server, UserMapping *user,
 		ctl.hash = tag_hash;
 		/* allocate ConnectionHash in the cache context */
 		ctl.hcxt = CacheMemoryContext;
-		ConnectionHash = hash_create("cstar_fdw connections", 8,
+		ConnectionHash = hash_create("cassandra_fdw connections", 8,
 									 &ctl,
 								   HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
 
