@@ -45,7 +45,7 @@ from the cpp-driver project.
 
 ```sh
 cmake .
-make && sudo make install
+make && make install # with sudo if necessary
 ```
 
 ### Build and Install the FDW ###
