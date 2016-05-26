@@ -64,6 +64,8 @@ PG_MODULE_MAGIC;
 /* TODO: Add support for multiple comma-separated PK columns */
 #define OPT_PK						"primary_key"
 
+#define SMALLINT_NULL_SET_ISSUE_URL	"https://groups.google.com/a/lists.datastax.com/forum/#!topic/cpp-driver-user/b1XRQdnVH6A"
+
 struct CassFdwOption
 {
 	const char	*optname;
@@ -303,6 +305,10 @@ static void cassClassifyConditions(PlannerInfo *root,
 				   List **remote_conds,
 				   List **local_conds);
 #ifdef CSTAR_FDW_WRITE_API
+static void
+cassStatementBindNull(const CassStatement * stmt,
+					  int pindex, Oid ptypeid, const char *opname,
+					  EState *estate, ResultRelInfo *resultRelInfo);
 static void releaseCassResources(EState *estate, ResultRelInfo *resultRelInfo);
 static void
 bind_cass_statement_param(Oid type, Datum value,
@@ -1392,6 +1398,30 @@ void releaseCassResources(EState *estate, ResultRelInfo *resultRelInfo)
 }
 
 /*
+ * cassStatementBindNull
+ *		Bind NULL to a param position while checking for errors and releasing
+ *		resources upon error.
+ */
+static
+void cassStatementBindNull(const CassStatement *stmt,
+                           int pindex, Oid ptypeid, const char *opname,
+                           EState *estate, ResultRelInfo *resultRelInfo)
+{
+	if (ptypeid == INT2OID)
+	{
+		releaseCassResources(estate, resultRelInfo);
+
+		ereport(ERROR,
+				(errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+				 errmsg("Failed to execute %s into Cassandra: \n  "
+						"Unable to bind NULL to a SMALLINT COLUMN because of "
+						"%s", opname, SMALLINT_NULL_SET_ISSUE_URL)));
+	}
+
+	cass_statement_bind_null((CassStatement *) stmt, pindex);
+}
+
+/*
  * cassExecForeignInsert
  *		Insert one row into a FOREIGN TABLE
  */
@@ -1427,7 +1457,9 @@ static TupleTableSlot *cassExecForeignInsert(EState *estate,
 
 			value = slot_getattr(slot, attnum, &isnull);
 			if (isnull)
-				cass_statement_bind_null(fmstate->statement, pindex);
+				cassStatementBindNull(fmstate->statement, pindex,
+				                      fmstate->p_type_oids[pindex], "INSERT",
+				                      estate, resultRelInfo);
 			else
 				bind_cass_statement_param(fmstate->p_type_oids[pindex],
 				                          value, fmstate->statement, pindex);
@@ -2078,7 +2110,9 @@ cassExecPKPredWrite(EState *estate,
 
 			value = slot_getattr(slot, attnum, &isnull);
 			if (isnull)
-				cass_statement_bind_null(fmstate->statement, pindex);
+				cassStatementBindNull(fmstate->statement, pindex,
+				                      fmstate->p_type_oids[pindex], cqlOpName,
+				                      estate, resultRelInfo);
 			else
 				bind_cass_statement_param(fmstate->p_type_oids[pindex],
 				                          value, fmstate->statement, pindex);
