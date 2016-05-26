@@ -6,7 +6,7 @@ DROP FOREIGN TABLE IF EXISTS write_type_mapping;
 
 CREATE FOREIGN TABLE write_type_mapping (
     id int,
-    smallint_value smallint,
+    smallint_value smallint DEFAULT 0,
     int_value int,
     bigint_value bigint,
     bool_value boolean,
