@@ -19,7 +19,7 @@ native *cpp-driver* with this extension in the BigSQL distribution.
 In addition to normal PostgreSQL FDW pre-reqs, the primary specific
 requirement for this FDW is the
 [Cassandra CPP Driver](https://github.com/datastax/cpp-driver) *version
-2.3*.
+2.4*.
 
 First, download the source code under the contrib subdirectory of the
 PostgreSQL source tree and change into the FDW subdirectory:
@@ -30,12 +30,12 @@ cd cassandra_fdw
 
 ### Build and Install cpp-driver ###
 
-Check out *version 2.3* of the cpp-driver:
+Check out *version 2.4* of the cpp-driver:
 
 ```sh
 git clone git@github.com:datastax/cpp-driver.git
 cd cpp-driver
-git checkout 2.3.0
+git checkout 2.4.0
 ```
 
 Next, build and install it.  We show an example on Linux using
