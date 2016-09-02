@@ -645,8 +645,13 @@ cassGetForeignRelSize(PlannerInfo *root,
 					   &fpinfo->remote_conds, &fpinfo->local_conds);
 
 	fpinfo->attrs_used = NULL;
+#if (PG_VERSION_NUM < 90600)
 	pull_varattnos((Node *) baserel->reltargetlist, baserel->relid,
 				   &fpinfo->attrs_used);
+#else
+	pull_varattnos((Node *) baserel->reltarget->exprs, baserel->relid,
+				   &fpinfo->attrs_used);
+#endif /* PG_VERSION_NUM < 90600 */
 	foreach(lc, fpinfo->local_conds)
 	{
 		RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
@@ -672,8 +677,14 @@ cassGetForeignRelSize(PlannerInfo *root,
 		if (baserel->pages == 0 && baserel->tuples == 0)
 		{
 			baserel->pages = 10;
+#if (PG_VERSION_NUM < 90600)
 			baserel->tuples =
 				(10 * BLCKSZ) / (baserel->width + sizeof(HeapTupleHeaderData));
+#else
+			baserel->tuples =
+				(10 * BLCKSZ) / (baserel->reltarget->width + sizeof(HeapTupleHeaderData));
+#endif /* PG_VERSION_NUM < 90600 */
+
 		}
 
 		/* Estimate baserel size as best we can with local statistics. */
@@ -694,7 +705,11 @@ estimate_path_cost_size(PlannerInfo *root,
 						Cost *p_startup_cost, Cost *p_total_cost)
 {
 	*p_rows = baserel->rows;
+#if (PG_VERSION_NUM < 90600)
 	*p_width = baserel->width;
+#else
+	*p_width = baserel->reltarget->width;
+#endif /* PG_VERSION_NUM < 90600 */
 
 	*p_startup_cost = DEFAULT_FDW_STARTUP_COST;
 	*p_total_cost = DEFAULT_FDW_TUPLE_COST * 100;
@@ -730,8 +745,18 @@ cassGetForeignPaths(PlannerInfo *root,
 								   NIL, /* no pathkeys */
 								   NULL,		/* no outer rel either */
 								   NIL);		/* no fdw_private list */
+#elif PG_VERSION_NUM < 90600
+	path = create_foreignscan_path(root, baserel,
+	                               fpinfo->rows + baserel->rows,
+	                               fpinfo->startup_cost,
+	                               fpinfo->total_cost,
+	                               NIL, /* no pathkeys */
+	                               NULL,		/* no outer rel either */
+	                               NULL,		/* no outer path either */
+	                               NIL);		/* no fdw_private list */
 #else
 	path = create_foreignscan_path(root, baserel,
+								   NULL,
 	                               fpinfo->rows + baserel->rows,
 	                               fpinfo->startup_cost,
 	                               fpinfo->total_cost,
