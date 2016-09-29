@@ -186,9 +186,12 @@ cassDeparseTargetList(StringInfo buf,
 		}
 	}
 
-	/* Don't generate bad syntax if no undropped columns */
+	/* Don't generate bad syntax if no undropped columns
+	 *
+	 * CQL does not support arbitrary literals in the target list so we use *.
+	 */
 	if (first)
-		appendStringInfoString(buf, "NULL");
+		appendStringInfoString(buf, "*");
 }
 
 /*
