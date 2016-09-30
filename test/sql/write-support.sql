@@ -97,4 +97,4 @@ SELECT id, double_value FROM write_type_mapping WHERE id = 3;
 DELETE FROM write_type_mapping WHERE id IN (1, 2);
 DELETE FROM write_type_mapping WHERE double_value = 3.14159;
 
-SELECT * FROM write_type_mapping;
+SELECT COUNT(id) FROM write_type_mapping;
