@@ -8,4 +8,4 @@
 
 - Resolve the inability to run COUNT(*).  This issue was inherited from
   the original FDW code which was, in turn, based on the postgres_fdw
-  code that failed to work with Cassandra.
+  code which failed to work with Cassandra.
