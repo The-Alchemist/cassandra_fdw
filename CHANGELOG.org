@@ -1,0 +1,5 @@
+* Master
+
+** Enhancements
+
+- Update to cpp-driver version 2.4.3.
