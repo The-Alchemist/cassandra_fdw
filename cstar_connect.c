@@ -212,6 +212,16 @@ connect_cass_server(ForeignServer *server, UserMapping *user)
 			{
 				svr_password = values[i];
 			}
+			
+			else if (strcmp(keywords[i], "token_aware_routing") == 0)
+			{
+				if(atoi(values[i] == true) {
+					cass_cluster_set_token_aware_routing(cluster, cass_true);
+				} else {
+					cass_cluster_set_token_aware_routing(cluster, cass_false);
+				}
+			}
+			
 		}
 
 		if (svr_host)
