@@ -1984,18 +1984,26 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 
 	case CASS_VALUE_TYPE_BLOB:
 	{
-		cass_byte_t* bytes = 0;
+		const cass_byte_t* bytes = 0;
 		size_t size = 0;
-		cass_value_get_bytes(value, &bytes, &size);
+		CassError cassError = cass_value_get_bytes(value, &bytes, &size);
 
-		// convert uint8_t to postgres hex format (https://www.postgresql.org/docs/current/static/datatype-binary.html#id-1.5.7.12.9)
-		appendStringInfoString(buf, "\\x");
-
-		for(int i = 0; i < size; ++i)
+		if(cassError == CASS_OK)
 		{
-			cass_byte_t = bytes[i];
-			appendStringInfoString(buf, "%02X", cass_byte_t);
+
+			// convert uint8_t to postgres hex format (https://www.postgresql.org/docs/current/static/datatype-binary.html#id-1.5.7.12.9)
+			appendStringInfoString(buf, "\\x");
+
+			for (int i = 0; i < size; ++i) {
+				cass_byte_t b = bytes[i];
+				appendStringInfo(buf, "%02X", b);
+			}
+		} else {
+			ereport(ERROR,
+					(errcode(ERRCODE_FDW_ERROR),
+							errmsg("Bad call to cass_value_get_bytes, %s", cass_error_desc(cassError))));
 		}
+
 
 		break;
 	}
