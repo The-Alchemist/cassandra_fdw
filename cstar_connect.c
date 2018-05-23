@@ -143,6 +143,11 @@ pgcass_ReleaseConnection(CassSession *session)
 	cass_future_free(close_future);
 }
 
+void cassLog(const CassLogMessage *message, void *data) {
+	ereport(INFO, (errmsg_internal("[%s]: %s", message->severity, message->message)));
+}
+
+
 /*
  * Connect to remote server using specified server and user mapping properties.
  */
@@ -157,6 +162,12 @@ connect_cass_server(ForeignServer *server, UserMapping *user)
 		cluster = cass_cluster_new();
 		on_proc_exit(pgcass_close, 0);
 	}
+
+	/*
+	 * set up logging
+	 */
+	void* data;
+	cass_log_set_callback(cassLog, &data);
 
 	/*
 	 * Use PG_TRY block to ensure closing connection on error.
@@ -213,16 +224,44 @@ connect_cass_server(ForeignServer *server, UserMapping *user)
 				svr_password = values[i];
 			}
 			
-			else if (strcmp(keywords[i], "token_aware_routing") == 0)
+			else if (strcmp(keywords[i], "use_token_aware_routing") == 0)
 			{
-				if(atoi(values[i] == true) {
+				if(strcmp(values[i], "true") || strcmp(values[i], "TRUE")) {
 					cass_cluster_set_token_aware_routing(cluster, cass_true);
 				} else {
 					cass_cluster_set_token_aware_routing(cluster, cass_false);
 				}
 			}
-			
-		}
+
+            else if (strcmp(keywords[i], "set_log_level") == 0)
+            {
+                if(strcmp(values[i], "CASS_LOG_DISABLED")) {
+                    cass_log_set_level(CASS_LOG_DISABLED);
+                } else if(strcmp(values[i], "CASS_LOG_CRITICAL")) {
+                    cass_log_set_level(CASS_LOG_CRITICAL);
+                } else if(strcmp(values[i], "CASS_LOG_ERROR")) {
+                    cass_log_set_level(CASS_LOG_ERROR);
+                } else if(strcmp(values[i], "CASS_LOG_WARN")) {
+                    cass_log_set_level(CASS_LOG_WARN);
+                } else if(strcmp(values[i], "CASS_LOG_INFO")) {
+                    cass_log_set_level(CASS_LOG_INFO);
+                } else if(strcmp(values[i], "CASS_LOG_DEBUG")) {
+                    cass_log_set_level(CASS_LOG_DEBUG);
+                } else if(strcmp(values[i], "CASS_LOG_TRACE")) {
+                    cass_log_set_level(CASS_LOG_TRACE);
+                } else {
+                    ereport(ERROR,
+                            (errcode(ERRCODE_FDW_ERROR),
+                                    errmsg("invalid option to configure log level \"%s\"",
+                                           values[i]),
+                                    errhint("Use one of the following log levels from https://docs.datastax.com/en/developer/cpp-driver/2.9/api/cassandra.h/#enum-CassLogLevel")));
+                }
+
+            }
+
+
+
+        }
 
 		if (svr_host)
 			cass_cluster_set_contact_points(cluster, svr_host);

@@ -76,6 +76,8 @@ static struct CassFdwOption valid_options[] =
 {
 	/* Connection options */
 	{ "host",			ForeignServerRelationId },
+	{ "use_token_aware_routing",			ForeignServerRelationId },
+	{ "set_log_level",	ForeignServerRelationId },
 	{ "port",			ForeignServerRelationId },
 	{ "protocol",		ForeignServerRelationId },
 	{ "username",		UserMappingRelationId },
