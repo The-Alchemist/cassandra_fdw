@@ -21,6 +21,8 @@ extern void pgcass_ReleaseConnection(CassSession *session);
 extern void pgcass_report_error(int elevel, CassFuture* result_future,
 				bool clear, const char *sql);
 
+extern void cassLog(const CassLogMessage *, void *);
+
 /* in deparse.c */
 extern void
 cassDeparseSelectSql(StringInfo buf,

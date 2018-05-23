@@ -144,7 +144,7 @@ pgcass_ReleaseConnection(CassSession *session)
 }
 
 void cassLog(const CassLogMessage *message, void *data) {
-	ereport(INFO, (errmsg_internal("[%s]: %s", message->severity, message->message)));
+	ereport(DEBUG1, (errmsg_internal("[%d]: %s", message->severity, message->message)));
 }
 
 

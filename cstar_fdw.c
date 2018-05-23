@@ -1981,6 +1981,24 @@ pgcass_transferValue(StringInfo buf, const CassValue* value)
 		buf->data[buf->len] = '\0';
 		break;
 	}
+
+	case CASS_VALUE_TYPE_BLOB:
+	{
+		cass_byte_t* bytes = 0;
+		size_t size = 0;
+		cass_value_get_bytes(value, &bytes, &size);
+
+		// convert uint8_t to postgres hex format (https://www.postgresql.org/docs/current/static/datatype-binary.html#id-1.5.7.12.9)
+		appendStringInfoString(buf, "\\x");
+
+		for(int i = 0; i < size; ++i)
+		{
+			cass_byte_t = bytes[i];
+			appendStringInfoString(buf, "%02X", cass_byte_t);
+		}
+
+		break;
+	}
 	case CASS_VALUE_TYPE_LIST:
 	case CASS_VALUE_TYPE_MAP:
 	default:
