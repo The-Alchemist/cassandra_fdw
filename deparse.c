@@ -228,6 +228,13 @@ cassDeparseSelectSql(StringInfo buf,
 	appendStringInfoString(buf, " FROM ");
 	cassDeparseRelation(buf, rel);
 
+	/*
+	 * add any limit clauses
+	 */
+	appendStringInfoString(buf, " LIMIT 1");
+
+
+
 	elog(DEBUG1, CSTAR_FDW_NAME ": built the statement: %s", buf->data);
 
 	heap_close(rel, NoLock);
