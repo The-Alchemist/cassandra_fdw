@@ -75,6 +75,16 @@ The following parameters can be set on a Cassandra foreign table object:
 Here is an example:
 
 ```sql
+  
+cqlsh> CREATE KEYSPACE example WITH replication = {'class': 'SimpleStrategy', 'replication_factor' : 1};
+cqlsh> CREATE TABLE example.oorder (id int primary key);
+cqlsh> INSERT into example.oorder (id) values (1);
+cqlsh> INSERT into example.oorder (id) values (2);
+  
+```
+
+
+```sql
 -- Load EXTENSION first time after install.
 CREATE EXTENSION cassandra_fdw;
 
